@@ -11,6 +11,51 @@ using System.Drawing;
 using System.Windows;
 using System.Numerics;
 
+#if UNITY_2021_3_OR_NEWER
+using UnityEngine;
+public class UnityFunction
+{
+    //OpenCV는 BGR
+    //C#은 ARGB 
+    public static uint ColorToUInt(UnityEngine.Color32 color)
+    {
+        return (uint)((color.a << 24) | (color.r << 16) | (color.g << 8) | (color.b));
+    }
+    public static UnityEngine.Color32 RandomColor()
+    {
+        return UnityEngine.Random.ColorHSV();
+    }
+}
+
+#endif
+
+public static class WindowHandle
+{
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetActiveWindow();
+    [DllImport("User32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    public static IntPtr now_hWnd;
+
+
+#if UNITY_2017_1_OR_NEWER
+    [RuntimeInitializeOnLoadMethod]
+    public static void RuntimeInitializeOnLoad()
+    {
+        now_hWnd = GetForegroundWindow();
+    }
+#else
+    static WindowHandle()
+    {
+        now_hWnd = GetForegroundWindow();
+    }
+#endif
+}
+
+
 public class Window
 {
 
@@ -131,6 +176,46 @@ public class Display
 }
 
 
+public static class EnumConverter
+{
+    struct Shell<T> where T : struct
+    {
+        public int IntValue;
+        public T Enum;
+    }
+
+    //https://www.slideshare.net/slideshow/enum-boxing-enum-ndc2019/142689361
+    public static int EnumToInt32<T>(T e) where T : struct
+    {
+        Shell<T> s;
+        s.Enum = e;
+        unsafe
+        {
+            int* p = &s.IntValue;
+            p += 1;
+            return *p;
+        }
+    }
+
+    public static T IntToEnum32<T>(int value) where T : struct
+    {
+        Shell<T> s = new Shell<T>();
+        unsafe
+        {
+            int* p = &s.IntValue;
+            p += 1;
+            *p = value;
+        }
+        return s.Enum;
+    }
+}
+
+//(ryzen7 5800x3d, ram 32gb) and (inten pentium g5400, ram 8gb) both (byte+implicit casting) > int
+public enum Keys : byte    
+{
+    A = 0x41,
+
+}
 
 public class KeyBoard
 {
@@ -142,7 +227,23 @@ public class KeyBoard
     [DllImport("user32.dll")]       
     private static extern int UnregisterHotKey(int hwnd, int id);
 
+    // Modifier 키 정의
+    public const uint MOD_ALT = 0x0001;
+    public const uint MOD_CONTROL = 0x0002;
+    public const uint MOD_SHIFT = 0x0004;
+    public const uint MOD_WIN = 0x0008;
 
-    
+
+    private const int HOTKEY_ID = 125475;
+    private static void Test(int hWnd)
+    {
+
+    }
 
 }
+
+public class Registry
+{
+    
+}
+
