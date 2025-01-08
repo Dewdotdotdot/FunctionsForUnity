@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="refresh" content="0; url=https://github.com/username/repository-name/blob/main/path/to/file.ext" />
+    <title>Redirecting...</title>
+  </head>
+  <body>
+    <p>Redirecting to <a href="https://github.com/username/repository-name/blob/main/path/to/file.ext">specific file</a>.</p>
+  </body>
+</html>
