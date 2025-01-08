@@ -1,11 +1,78 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <style>
+    body {
+      background-color: #2F3A5F;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      flex-direction: column; 
+      align-items: center;
+      height: 100vh;
+
+    }
+    .text-container {
+      color: white;
+      font-weight: bold;
+      font-size: 1.5rem; /* 글자 크기 */
+      text-align: center;
+    }
+    .mainText-container {
+      color: white;
+      font-weight: bold;
+      font-size: 3rem; /* 글자 크기 */
+      text-align: center;
+      margin-bottom: 100px; /* 아래쪽 간격 추가 */
+    }
+
+    .styled-table {
+      border-collapse: collapse; /* 겹치는 테두리 제거 */
+      width: 50%;
+      text-align: center;
+      font-size: 1.2rem;
+      border: 5px solid white; /* 외곽 두꺼운 선 */
+    }
+    .styled-table th, .styled-table td {
+      border: 2px solid white; /* 내부 실선 */
+      padding: 15px;
+      color: white;
+    }
+  </style>
     <!--  <meta http-equiv="refresh" content="0; url=https://github.com/Cat-In-Case/CShopFunctions/blob/main/Window.cs" /> -->
     <title>Redirect to Windows.cs</title>
   </head>
   <body>
-    <p>Redirecting to <a href="https://github.com/Cat-In-Case/CShopFunctions/blob/main/Window.cs">Windows.cs</a>.</p>
-    <p>Redirecting to <a href="https://github.com/Cat-In-Case/CustomRenderFeature/blob/main/">CustomRenderFeature</a>.</p>
+    <div class="mainText-container"> Redirect Test Page </div>
+
+    <table class="styled-table">
+        <tr>
+            <td>
+                <div class="text-container">
+                    Redirecting to File
+                </div>
+            </td>
+            <td>
+                <div class="text-container">
+                     <a href="https://github.com/Cat-In-Case/CShopFunctions/blob/main/Window.cs">Windows.cs</a>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td>
+                <div class="text-container">
+                    Redirecting to Repository
+                </div>
+            </td>
+            <td>
+                <div class="text-container">
+                     <a href="https://github.com/Cat-In-Case/CustomRenderFeature/blob/main/">CustomRenderFeature</a>
+                </div>
+            </td>
+        </tr>
+  </table>
+
   </body>
 </html>
