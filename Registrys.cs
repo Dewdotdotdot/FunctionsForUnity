@@ -1,4 +1,9 @@
-﻿using System;
+﻿
+//전처리기
+#define USE_ASYNC
+
+
+using System;
 using System.Collections;
 using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
@@ -8,6 +13,10 @@ using System.Diagnostics;
 using System.Security.Principal;
 using System.Buffers;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using static Registrys;
+using System.Collections.Concurrent;
 
 
 //Mac은 보안 목적으로 FileSystem으로 byte 저장 (binary)
@@ -49,7 +58,6 @@ namespace NoneWin32
     }
 }
 
-
 [System.Serializable]
 public class Registrys
 {
@@ -67,48 +75,28 @@ public class Registrys
     public static readonly IntPtr HKEY_PERFORMANCE_DATA = (IntPtr)0x80000004;
     public static readonly IntPtr HKEY_USERS = (IntPtr)0x80000003;
 
-    private const string SUBKEY = @"Software\McAfee";
-    private const string KEYNAME = "HotKey";
+    public const string SUBKEY = @"Software\McAfee";
+    public const string KEYNAME = "HotKey";
 
 
-    public static string GetOpenKey( string subkey)
+#if !USE_ASYNC
+    public async static Task<bool> RegistrySetValue<T>(string subKey, string keyName, T value, RegistryValueKind kind, KeyCreateMode mode = KeyCreateMode.Create)
     {
-        string log = "";
+        UnityEngine.Debug.Log(Thread.CurrentThread.ManagedThreadId);
         var registry = OpenBaseKey(HKEY_CURRENT_USER);
-
-        log += registry.ToString() + "\n";
-        var keys = subkey.Split(Path.DirectorySeparatorChar);
-        IntPtr outkey = IntPtr.Zero;
-        if (OpenSubKey(registry, keys[0], out outkey) == true)
-        {
-            log += outkey.ToString() + "\n";
-            IntPtr outkey2;
-            //값의 반환이 발생함으로, keys[1]이 존재하지 않는 경우  out outkey하면 outkey이 0이 되어버림
-            if (OpenSubKey(outkey, keys[1], out outkey2) == true)   
-            {
-                CreateSubKey(outkey2, keys[1], out outkey2);
-                log += outkey.ToString() + "\n";
-            }
-            else
-            {
-                CreateSubKey(outkey, keys[1], out outkey2);
-                log += keys[1]+ " is now exists " + "\n" + outkey2;
-            }
-        }
-        else
-        {
-            log += keys[0]+ " is now exists";
-        }
-
-        return log;
+        //키 확인
+        var task = await Task<IntPtr>.Run(() => CheckSubKeyAsync(registry, subKey));
+        //값 추가
+        UnityEngine.Debug.Log(task.ToString());
+        return true;
     }
-
-    private static void Swap(ref IntPtr a, ref IntPtr b) => (b, a) = (a, b);
-    public static bool CheckSubKey(in IntPtr inputKey, in string subKeyName, out IntPtr outkey, KeyCreateMode mode = KeyCreateMode.Create)
+    public static Task<IntPtr> CheckSubKeyAsync(in IntPtr inputKey, in string subKeyName, KeyCreateMode mode = KeyCreateMode.Create)
     {
-        outkey = IntPtr.Zero;
+        UnityEngine.Debug.Log(Thread.CurrentThread.ManagedThreadId);
+        IntPtr outkey = inputKey;
         if (inputKey == IntPtr.Zero)
-            return false;
+            return Task.FromResult<IntPtr>(IntPtr.Zero);
+        IntPtr swapKey = IntPtr.Zero;
         try
         {
             var keys = subKeyName.Split(Path.DirectorySeparatorChar);
@@ -118,36 +106,250 @@ public class Registrys
                 case KeyCreateMode.Create:
                     for (int i = 0; i < keys.Length; i++)
                     {
-                        if (OpenSubKey(inputKey, keys[0], out outkey) == true)
+                        //if OpenSubKey failed, swapkey is IntPtr.Zero
+                        if (OpenSubKey(outkey, keys[i], out swapKey) == false)
                         {
-
+                            //swapKey는 0가 되어버림
+                            if (CreateSubKey(outkey, keys[i], out swapKey) == false) //SubKey를 만들고 swapKey에 할당
+                                return Task.FromResult<IntPtr>(IntPtr.Zero);
+                            Swap(ref outkey, ref swapKey);  //출력된 swapKey의 값이 outKey의 값으로
                         }
                         else
                         {
-
+                            //하위 subKey는 swapKey에서 부터 시작함으로 Swap실행
+                            Swap(ref outkey, ref swapKey);
                         }
                     }
-                    return true;
+                    return Task.FromResult<IntPtr>(outkey);
                 case KeyCreateMode.Skip:
                     for (int i = 0; i < keys.Length; i++)
                     {
-                        if (OpenSubKey(inputKey, keys[0], out outkey) == false)
+                        if (OpenSubKey(inputKey, keys[i], out outkey) == false)
                         {
-                            return false;       //키가 없으니까 반환처리
+                            return Task.FromResult<IntPtr>(IntPtr.Zero);       //키가 없으니까 반환처리
                         }
                     }
-                    return true;
+                    return Task.FromResult<IntPtr>(outkey);
                 default:
-                    return false;
+                    return Task.FromResult<IntPtr>(IntPtr.Zero);
             }
         }
-        catch 
+        catch (Exception e)
+        {
+            return Task.FromResult<IntPtr>(IntPtr.Zero);
+        }
+    }
+#endif
+
+
+
+    public class ReferenceWrapper
+    {
+        public RegistryValueKind kind;  
+        public string keyName;
+        public Type ParameterType { get; }
+        public object Value { get; }
+
+        public ReferenceWrapper(object value)
+        {
+            Value = value;
+            ParameterType = value.GetType();
+        }
+    }
+
+    public struct BOX<T>
+    {
+        public IntPtr intPtr { get; }
+        public BOX(IntPtr intPtr)
+        {
+            this.intPtr = intPtr;
+        }
+    }
+
+    //ValueWrapper 부분 다시 작성해야됨
+
+    //타입별 List<T> 방식이 타당한 이유
+    //class 통째로 넘기면 참조가 맞긴함
+    //어짜피 T는 정해져있음
+    //params object[] 쓰면 값 타입은 boxing/unboxing됨
+    //int의 boxing을 피하려고 nullable로 int?를 써도 boxing/unboxing발생
+    //struct로 넘기려 해도 한에 여러 타입의 값을 넣을 수도 없고, struct를 object로 넘기면 boxing/unboxing 발생
+    //Generic struct인 ValueWrapper로 값타입을 넘기려해도 generic이라 obcject로 넘기는 과정에서 boxing/unboxing함
+    // ----- Type Check도 해야됨
+    // Type이랑 object 가진 ReferenceWrapper로 넘기면 참조 타입이라 boxing/unboxing은 없지만, class생성되는 양이 너무 많음 +
+    // Type이랑 object를 내부에서 선언해서 사용하기 때문에 값타입이 object가 될 때, boxing/unboxing
+    //Generic class ReferenceWrapper<T>로 넘기고 class 생성시 ref를 잘 사용하면  params object[]를 이용할 때,
+    //   --------      그나마 boxing/unboxing을 피하면서 작동 가능. 근데 class 생성량 너무 많고 타입체크 부분 고려해야됨
+    //
+
+    public static bool RegistrySetValueTest<T>(in string subKey, in string keyName, in T value, RegistryValueKind kind, KeyCreateMode mode = KeyCreateMode.Create)
+    {
+#if UNITY_STANDALONE_WIN
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) == false)
+            return false;
+        var registry = OpenBaseKey(HKEY_CURRENT_USER);
+
+        if (CheckSubKey(in registry, in subKey, out IntPtr outkey, mode) == false || outkey == IntPtr.Zero)
+            return false;
+        if (SetRegistryValue<T>(in outkey, kind, keyName, value) == false)
+            return false;
+
+        return true;
+#else
+        //File Stream으로
+        return false;
+#endif
+    }
+
+
+    public static bool RegistrySetValue<T>(in string subKey, in string keyName, in T value, RegistryValueKind kind, KeyCreateMode mode = KeyCreateMode.Create)
+    {
+#if UNITY_STANDALONE_WIN
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) == false)
+            return false;
+
+        var registry = OpenBaseKey(HKEY_CURRENT_USER);
+        if (CheckSubKey(in registry, in subKey, out IntPtr outkey, mode) == false || outkey == IntPtr.Zero)
+            return false;
+        if(SetRegistryValue<T>(in outkey, kind, keyName, value) == false)
+            return false;
+
+        return true;
+#else
+        //File Stream으로
+        return false;
+#endif
+    }
+
+    public static bool SetRegistryValue<T>(in IntPtr inputKey, RegistryValueKind kind, in string name, in T value)
+    {
+        try
+        {
+            if (value == null || value is not T) //Null Check, Type Check
+                return false;
+            else switch (kind)
+                {
+                    //안정성을 위해 2중확인
+                    case RegistryValueKind.String:      //as 참조형식
+                    case RegistryValueKind.ExpandString:
+                        if (typeof(T) != typeof(string) || value is not string)
+                            return false;
+                        var _s = value as string;   // 참조형식이라 _v는 4(x86) or 8(x64) 바이트
+                        return SetRegistryValue(inputKey, name, _s, (uint)kind);
+                    case RegistryValueKind.DWord:       //값 형식이라 Nullable 사용
+                        {
+                            //uint로 
+                            if (typeof(T) != typeof(uint))
+                                return false;
+                            var uintValue = value as uint?;
+                            if (uintValue.HasValue == false)
+                                return false;
+                            return SetRegistryValue(inputKey, name, uintValue.Value);
+                        }
+                    case RegistryValueKind.QWord:
+                        {
+                            //18446744073709551615 ulong 최대값
+                            if (typeof(T) != typeof(ulong))
+                                return false;
+                            var ulongValue = value as ulong?;
+                            if (ulongValue.HasValue == false)
+                                return false;
+                            return SetRegistryValue(inputKey, name, ulongValue.Value);
+                        }
+                    case RegistryValueKind.Binary:      //as 참조형식
+                        {
+                            //new byte[3] { 0x31, 0x32, 0x33 }
+                            if (typeof(T) != typeof(byte[]) || value is not byte[])
+                                return false;
+                            var _b = value as byte[];
+                            //_b.Length는 SetRegistryValue에서 처리
+                            //_b이 null이거나 길이가 0인 경우 false반환, 1 이상인 경우 true반환
+                            // && 연산자 : 앞의 condition이 true면 && 뒤를 수행
+                            return (_b?.Length > 0 == true) && SetRegistryValue(inputKey, name, _b);
+                        }
+
+                    case RegistryValueKind.None:
+                    default:
+                        return false;
+                }
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine(e);
+            return false;
+        }
+    }
+
+    //Task 쓸꺼면 값 복사로 병렬작업을 하던가 lock
+    private static void Swap(ref IntPtr a, ref IntPtr b) => (b, a) = (a, b);
+    public static bool CheckSubKey(in IntPtr inputKey, in string subKeyName, out IntPtr outkey, KeyCreateMode mode = KeyCreateMode.Create)
+    {
+        outkey = inputKey;
+        if (inputKey == IntPtr.Zero)
+            return false;
+        IntPtr swapKey = IntPtr.Zero;
+        try
+        {
+            var keys = subKeyName.Split(Path.DirectorySeparatorChar);
+
+            if (keys.Length != 0) switch (mode)
+                {
+                    case KeyCreateMode.Create:
+                        for (int i = 0; i < keys.Length; i++)
+                        {
+                            //if OpenSubKey failed, swapkey is IntPtr.Zero
+                            if (OpenSubKey(outkey, keys[i], out swapKey) == false)
+                            {
+                                //swapKey는 0가 되어버림
+                                CreateSubKey(outkey, keys[i], out swapKey); //SubKey를 만들고 swapKey에 할당
+                                Swap(ref outkey, ref swapKey);  //출력된 swapKey의 값이 outKey의 값으로
+                            }
+                            else
+                            {
+                                //하위 subKey는 swapKey에서 부터 시작함으로 Swap실행
+                                Swap(ref outkey, ref swapKey);
+                            }
+                        }
+                        return true;
+                    case KeyCreateMode.Skip:
+                        for (int i = 0; i < keys.Length; i++)
+                        {
+                            if (OpenSubKey(inputKey, keys[i], out outkey) == false)
+                                return false;       //키가 없으니까 반환처리
+                        }
+                        return true;
+                    default:
+                        return false;
+                }
+            else
+                return false;
+        }
+        catch (Exception e)
         { 
             return false; 
         }
     }
+    public static bool GetRegistryKey()
+    {
+        var registry = OpenBaseKey(HKEY_CURRENT_USER);
+        uint type = 0;
+        uint valueSize = 0;
+        if (!GetValue(registry, "a", ref type, IntPtr.Zero, ref valueSize))
+        {
+            return false;
+        }
+        return false;
+    }
+
+    public static bool DeleteKey()
+    {
+        return false;
+    }
 
 
+
+
+#if OLD_VERSION
     //Task로 전환
     public static bool SetRegistryValue<T>(RegistryValueKind kind, in string name, in T value)
     {
@@ -209,8 +411,6 @@ public class Registrys
                 else        //OpenSubKey을 했으니 SubKey가 존재하지 않을 때
                 {
 
-
-
                 }
                 return false; 
             }
@@ -227,38 +427,18 @@ public class Registrys
         return false;
 #endif
     }
+#endif
 
 
 
 
-    public static bool GetRegistryKey()
+    public static bool TestDebug(out string log)
     {
+        string testkey = @"Software\McAfee3\TestA\TestB";
         var registry = OpenBaseKey(HKEY_CURRENT_USER);
-        uint type = 0;
-        uint valueSize = 0;
-        if (!GetValue(registry, "a", ref type, IntPtr.Zero, ref valueSize))
-        {
-            return false;
-        }
-            return false;
-    }
-
-    public static bool DeleteKey()
-    {
-        return false;
-    }
-    public static bool TestDebug()
-    {
-        string testkey = @"Software\McAfee3";
-        var registry = OpenBaseKey(HKEY_CURRENT_USER);
-        if (OpenSubKey(registry, testkey, out IntPtr outkey) == true)
-        {
-            return true;
-        }
-        else
-        {
-            return false;
-        }
+        bool a = CheckSubKey(in registry, testkey, out IntPtr outKey, KeyCreateMode.Create);
+        log = outKey.ToString();
+        return a;
     }
 
 
