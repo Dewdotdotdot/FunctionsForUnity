@@ -142,7 +142,7 @@ public class Registrys
 #endif
 
 
-
+    //폐기
     public class ReferenceWrapper
     {
         public RegistryValueKind kind;  
@@ -157,14 +157,6 @@ public class Registrys
         }
     }
 
-    public struct BOX<T>
-    {
-        public IntPtr intPtr { get; }
-        public BOX(IntPtr intPtr)
-        {
-            this.intPtr = intPtr;
-        }
-    }
 
     //ValueWrapper 부분 다시 작성해야됨
 
@@ -179,9 +171,14 @@ public class Registrys
     // Type이랑 object 가진 ReferenceWrapper로 넘기면 참조 타입이라 boxing/unboxing은 없지만, class생성되는 양이 너무 많음 +
     // Type이랑 object를 내부에서 선언해서 사용하기 때문에 값타입이 object가 될 때, boxing/unboxing
     //Generic class ReferenceWrapper<T>로 넘기고 class 생성시 ref를 잘 사용하면  params object[]를 이용할 때,
-    //   --------      그나마 boxing/unboxing을 피하면서 작동 가능. 근데 class 생성량 너무 많고 타입체크 부분 고려해야됨
-    //
+    //   --------       그나마 boxing/unboxing을 피하면서 작동 가능. 근데 class 생성량 너무 많고 타입체크 부분 고려해야됨
+    //Generic struct ValueWrapperandGeneric class ReferenceWrapper with params object[]
+    // -----            유연성은 가장 좋은데 느리고 코드 복잡성 너무 높은 + 유지보수 어려움
 
+    // IDisposable => 이거 class에만 되는데다 await해서 잡고 있으면 똑같고 lock 문제 있음
+
+    //SetRegistryValue을 최대한 여러번 호출해서 CheckSubKey부분 접근을 줄여야함 + Task로 전환 시, ref in out 못씀
+    //RegistrySetValueTest<T>가 아니고 RegistrySetValueTest로 접근하는게 맞음
     public static bool RegistrySetValueTest<T>(in string subKey, in string keyName, in T value, RegistryValueKind kind, KeyCreateMode mode = KeyCreateMode.Create)
     {
 #if UNITY_STANDALONE_WIN
@@ -191,6 +188,8 @@ public class Registrys
 
         if (CheckSubKey(in registry, in subKey, out IntPtr outkey, mode) == false || outkey == IntPtr.Zero)
             return false;
+
+        //다중 호출 필요, kind, keyName, value 묶어서 한번에 전달
         if (SetRegistryValue<T>(in outkey, kind, keyName, value) == false)
             return false;
 
@@ -211,7 +210,9 @@ public class Registrys
         var registry = OpenBaseKey(HKEY_CURRENT_USER);
         if (CheckSubKey(in registry, in subKey, out IntPtr outkey, mode) == false || outkey == IntPtr.Zero)
             return false;
-        if(SetRegistryValue<T>(in outkey, kind, keyName, value) == false)
+
+
+        if (SetRegistryValue<T>(in outkey, kind, keyName, value) == false)
             return false;
 
         return true;
@@ -221,6 +222,8 @@ public class Registrys
 #endif
     }
 
+
+    //이미 여기서 타입 체크를 함 + T인자가 Type값으로 정해질 수가 없음
     public static bool SetRegistryValue<T>(in IntPtr inputKey, RegistryValueKind kind, in string name, in T value)
     {
         try
@@ -282,6 +285,7 @@ public class Registrys
 
     //Task 쓸꺼면 값 복사로 병렬작업을 하던가 lock
     private static void Swap(ref IntPtr a, ref IntPtr b) => (b, a) = (a, b);
+    //문제없음 
     public static bool CheckSubKey(in IntPtr inputKey, in string subKeyName, out IntPtr outkey, KeyCreateMode mode = KeyCreateMode.Create)
     {
         outkey = inputKey;
@@ -329,6 +333,8 @@ public class Registrys
             return false; 
         }
     }
+
+    //c++코드랑 교차해서 확인 해야됨
     public static bool GetRegistryKey()
     {
         var registry = OpenBaseKey(HKEY_CURRENT_USER);
@@ -346,7 +352,7 @@ public class Registrys
         return false;
     }
 
-
+    //파일로 출력하는거 필요
 
 
 #if OLD_VERSION
