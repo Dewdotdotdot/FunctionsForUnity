@@ -21,6 +21,8 @@ using System.Threading.Tasks;
 
 using static UnityEngine.Rendering.DebugUI;
 using static Registrys;
+using static UnityEngine.InputManagerEntry;
+using UnityEngine;
 
 
 
@@ -85,40 +87,8 @@ public class Registrys
     public const string KEYNAME = "HotKey";
 
 
-    //ImmutableStruct
-    public struct Registry_String
-    {
-        public readonly RegistryValueKind kind;
-        public readonly string keyName;
-    }
-    public struct Registry_DWORD
-    {
 
-    }
-
-    public struct Registry_QWORD
-    {
-
-    }
-
-    public struct Registry_Binary
-    {
-
-    }
-    public struct Registry_Float
-    {
-
-    }
-
-    public struct Registry_Vector3
-    {
-
-    }
-
-
-
-
-#if !USE_ASYNC
+#if USE_ASYNC
     public async static Task<bool> RegistrySetValue<T>(string subKey, string keyName, T value, RegistryValueKind kind, KeyCreateMode mode = KeyCreateMode.Create)
     {
         UnityEngine.Debug.Log(Thread.CurrentThread.ManagedThreadId);
@@ -180,12 +150,21 @@ public class Registrys
     }
 #endif
 
-    public void EX_Function()
+    public static void EX_Function()
     {
-        List<Test<string>> s = new List<Test<string>>{ new Test<string>(RegistryValueKind.String, "a", "b") };
-        List< Test<uint> > d = new List<Test<uint>>();
-        List<Test<ulong>> q = new List<Test<ulong>>();
-        List< Test<byte[]> > b = new List<Test<byte[]>>();
+        List<RegistryBlock<string>> s = new List<RegistryBlock<string>>();
+        List<RegistryBlock<uint> > d = new List<RegistryBlock<uint>>();
+        List<RegistryBlock<ulong>> q = new List<RegistryBlock<ulong>>();
+        List<RegistryBlock<byte[]> > b = new List<RegistryBlock<byte[]>>();
+
+        s.Add(new RegistryBlock<string>( RegistryValueKind.String, "Test S 1", "tt"));
+        s.Add(new RegistryBlock<string>( RegistryValueKind.ExpandString, "Test ES 1", "GIGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
+        d.Add(new RegistryBlock<uint>( RegistryValueKind.DWord, KEYNAME, 0X31));
+        d.Add(new RegistryBlock<uint>( RegistryValueKind.DWord, KEYNAME + "  2", 0X81));
+        q.Add(new RegistryBlock<ulong>( RegistryValueKind.QWord, "Test Q 1", 8451281523187));                                                                         
+        q.Add(new RegistryBlock<ulong>(RegistryValueKind.QWord, "Test Q 2", 78764443425234235));
+        q.Add(new RegistryBlock<ulong>(RegistryValueKind.QWord, "Test Q 3", 675756864653543));
+        q.Add(new RegistryBlock<ulong>(RegistryValueKind.QWord, "Test Q 4", 546352432));
 
         Action dispose = () =>
         {
@@ -197,32 +176,62 @@ public class Registrys
 
         using (Union union = new Union(s, d, q, b, dispose))
         {
-
+            RegistrySetValue(SUBKEY, in union, KeyCreateMode.Create);
         }
-      
+     
     }
 
+    public struct RegistryBlock<T>   //불변 처리
+    {
+        public readonly RegistryValueKind kind;
+        public readonly string name;
+        public readonly T value;
+        public RegistryBlock(RegistryValueKind kind, string name, T value)
+        {
+            this.kind = kind;
+            this.name = name;
+            this.value = value;
+        }
+        public RegistryBlock(RegistryValueKind kind, ref string name, ref T value)
+        {
+            this.kind = kind;
+            this.name = name;
+            this.value = value;
+        }
+        public RegistryBlock(ref RegistryValueKind kind, ref string name, ref T value)   //값 복사 회피
+        {
+            this.kind = kind;
+            this.name = name;
+            this.value = value;
+        }
+    }
+
+    public Task Testingaa<T>(ref RegistryBlock<T> t)
+    {
+        return Task.CompletedTask;
+    }
+
+    [System.Serializable]
     public class Union : IDisposable
     {
         // s = new List<Test<string>>();  // 컴파일 에러
-        public IReadOnlyList<Test<string>> s { get; private set; }
-        public IReadOnlyList<Test<uint>> d { get; private set; }
-        public IReadOnlyList<Test<ulong>> q { get; private set; }
-        public IReadOnlyList<Test<byte[]>> b { get; private set; }
+        public IReadOnlyList<RegistryBlock<string>> s { get; private set; }
+        public IReadOnlyList<RegistryBlock<uint>> d { get; private set; }
+        public IReadOnlyList<RegistryBlock<ulong>> q { get; private set; }
+        public IReadOnlyList<RegistryBlock<byte[]>> b { get; private set; }
 
         public Action dispose { get; private set; }
 
-        public Union(List<Test<string>> s = null, List<Test<uint>> d = null, 
-            List<Test<ulong>> q = null, List<Test<byte[]>> b = null, Action dispose = null)
+        public Union(List<RegistryBlock<string>> s = null, List<RegistryBlock<uint>> d = null, 
+            List<RegistryBlock<ulong>> q = null, List<RegistryBlock<byte[]>> b = null, Action dispose = null)
         {
-            this.s = s.AsReadOnly();    //값 복사, 박싱이 없음
-            this.d = d.AsReadOnly();
-            this.q = q.AsReadOnly();
-            this.b = b.AsReadOnly();
+            //AsReadOnly는 값 복사, 박싱이 없음
+            this.s = s?.AsReadOnly();    
+            this.d = d?.AsReadOnly();
+            this.q = q?.AsReadOnly();
+            this.b = b?.AsReadOnly();
 
-            this.s = s ?? new List<Test<string>>();
-
-            this.dispose = dispose;
+            this.dispose = dispose != null ? dispose : null;
         }
 
         public void Dispose()
@@ -233,38 +242,27 @@ public class Registrys
         }
     }
 
-    public struct Test<T>   //불변 처리
+
+    public static string FloatEncode(float f)
     {
-        public readonly RegistryValueKind kind;
-        public readonly string name;       
-        public readonly T value;
-
-
-        public Test(RegistryValueKind kind, string name, T value)
-        {
-            this.kind = kind;
-            this.name = name;
-            this.value = value;
-        }
-        public Test(RegistryValueKind kind, ref string name, ref T value)
-        {
-            this.kind = kind;
-            this.name = name;
-            this.value = value;
-        }
-
-        public Test(ref RegistryValueKind kind, ref string name, ref T value)   //값 복사 회피
-        {
-            this.kind = kind;
-            this.name = name;
-            this.value = value;
-        }
+        return f.ToString() + "f";
+    }
+    public static bool FloatDecode(string s, out float  f)
+    {
+        ReadOnlySpan<char> span = s.AsSpan();
+        span.Slice(0, span.Length - 1);
+        return float.TryParse(span, out f);
     }
 
-    public async Task testTask<T>(IReadOnlyList<T> asd)
+    public static string Vector2Encode(Vector2 v)
     {
-
+        return null;
     }
+    public static string Vector3Encode(Vector3 v)
+    {
+        return null;
+    }
+
 
     //폐기
     /*
@@ -305,31 +303,7 @@ public class Registrys
 
     //SetRegistryValue을 최대한 여러번 호출해서 CheckSubKey부분 접근을 줄여야함 + Task로 전환 시, ref in out 못씀
     //RegistrySetValueTest<T>가 아니고 RegistrySetValueTest로 접근하는게 맞음
-
-
-    public static bool RegistrySetValueTest<T>(in string subKey, in Test<T> t , KeyCreateMode mode = KeyCreateMode.Create)
-    {
-        var registry = OpenBaseKey(HKEY_CURRENT_USER);
-
-        if (CheckSubKey(in registry, in subKey, out IntPtr outkey, mode) == false || outkey == IntPtr.Zero)
-            return false;
-
-        //다중 호출 필요, kind, keyName, value 묶어서 한번에 전달
-        if (SetRegistryValue<T>(in outkey, t.kind, t.name, t.value) == false)
-            return false;
-
-        return true;
-    }
-    public static bool SetRegistryValue<T>(in IntPtr inputKey,  Test<T>? value)
-    {
-        if (value == null || value is not T) //Null Check, Type Check
-            return false;
-
-        return true;
-    }
-
-
-    public static bool RegistrySetValueTest<T>(in string subKey, in string keyName, in T value, RegistryValueKind kind, KeyCreateMode mode = KeyCreateMode.Create)
+    public static bool RegistrySetValue(in string subKey, in Union value, KeyCreateMode mode = KeyCreateMode.Create)
     {
 #if UNITY_STANDALONE_WIN
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) == false)
@@ -340,8 +314,50 @@ public class Registrys
             return false;
 
         //다중 호출 필요, kind, keyName, value 묶어서 한번에 전달
-        if (SetRegistryValue<T>(in outkey, kind, keyName, value) == false)
-            return false;
+        if(value.s != null)
+        {
+            UnityEngine.Debug.Log(value.s.Count);
+            UnityEngine.Debug.Log(value.s[0]);
+            UnityEngine.Debug.Log(value.s[1]);
+            for (int i = 0; i < value.s.Count; i++)
+            {
+                //다음 루프에서 스택에 의해 해제(GC아님)
+
+                var data = value.s[i]; //string은 참조 복사
+                if (SetRegistryValue<string>(in outkey, in data) == false)
+                    return false;
+            }
+        }
+
+        if (value.d != null)
+        {
+            for (int i = 0; i < value.d.Count ; i++)
+            {
+                var data = value.d[i];
+                if (SetRegistryValue<uint>(in outkey, in data) == false)
+                    return false;
+            }
+        }
+
+        if (value.q != null)
+        {
+            for (int i = 0; i < value.q.Count; i++)
+            {
+                var data = value.q[i];
+                if (SetRegistryValue<ulong>(in outkey, in data) == false)
+                    return false;
+            }
+        }
+
+        if (value.b != null)
+        {
+            for (int i = 0; i < value.b.Count; i++)
+            {
+                var data = value.b[i];
+                if (SetRegistryValue<byte[]>(in outkey, in data) == false)
+                    return false;
+            }
+        }
 
         return true;
 #else
@@ -349,7 +365,233 @@ public class Registrys
         return false;
 #endif
     }
+    //이미 여기서 타입 체크를 함 + T인자가 Type값으로 정해질 수가 없음
+    public static bool SetRegistryValue<T>(in IntPtr inputKey, in RegistryBlock<T> block)
+    {
+        try
+        {
+            if (block.value == null || block.value is not T) //Null Check, Type Check
+                return false;
+            else switch (block.kind)
+                {
+                    //안정성을 위해 2중확인
+                    case RegistryValueKind.String:      //as 참조형식
+                    case RegistryValueKind.ExpandString:
+                        if (typeof(T) != typeof(string) || block.value is not string)
+                            return false;
+                        var _s = block.value as string;   // 참조형식이라 _v는 4(x86) or 8(x64) 바이트
+                        return SetRegistryValue(inputKey, block.name, _s, (uint)block.kind);
+                    case RegistryValueKind.DWord:       //값 형식이라 Nullable 사용
+                        {
+                            //uint로 
+                            if (typeof(T) != typeof(uint))
+                                return false;
+                            var uintValue = block.value as uint?;
+                            if (uintValue.HasValue == false)
+                                return false;
+                            return SetRegistryValue(inputKey, block.name, uintValue.Value);
+                        }
+                    case RegistryValueKind.QWord:
+                        {
+                            //18446744073709551615 ulong 최대값
+                            if (typeof(T) != typeof(ulong))
+                                return false;
+                            var ulongValue = block.value as ulong?;
+                            if (ulongValue.HasValue == false)
+                                return false;
+                            return SetRegistryValue(inputKey, block.name, ulongValue.Value);
+                        }
+                    case RegistryValueKind.Binary:      //as 참조형식
+                        {
+                            //new byte[3] { 0x31, 0x32, 0x33 }
+                            if (typeof(T) != typeof(byte[]) || block.value is not byte[])
+                                return false;
+                            var _b = block.value as byte[];
+                            //_b.Length는 SetRegistryValue에서 처리
+                            //_b이 null이거나 길이가 0인 경우 false반환, 1 이상인 경우 true반환
+                            // && 연산자 : 앞의 condition이 true면 && 뒤를 수행
+                            return (_b?.Length > 0 == true) && SetRegistryValue(inputKey, block.name, _b);
+                        }
 
+                    case RegistryValueKind.None:
+                    default:
+                        return false;
+                }
+        }
+        catch (Exception e)
+        {
+            UnityEngine.Debug.LogException(e);
+            return false;
+        }
+    }
+
+
+
+    //Task 쓸꺼면 값 복사로 병렬작업을 하던가 lock
+    private static void Swap(ref IntPtr a, ref IntPtr b) => (b, a) = (a, b);
+    //문제없음 
+    public static bool CheckSubKey(in IntPtr inputKey, in string subKeyName, out IntPtr outkey, KeyCreateMode mode = KeyCreateMode.Create)
+    {
+        outkey = inputKey;
+        if (inputKey == IntPtr.Zero)
+            return false;
+        IntPtr swapKey = IntPtr.Zero;
+        try
+        {
+            var keys = subKeyName.Split(Path.DirectorySeparatorChar);
+
+            if (keys.Length != 0) switch (mode)
+                {
+                    case KeyCreateMode.Create:
+                        for (int i = 0; i < keys.Length; i++)
+                        {
+                            //if OpenSubKey failed, swapkey is IntPtr.Zero
+                            if (OpenSubKey(outkey, keys[i], out swapKey) == false)
+                            {
+                                //swapKey는 0가 되어버림
+                                CreateSubKey(outkey, keys[i], out swapKey); //SubKey를 만들고 swapKey에 할당
+                                Swap(ref outkey, ref swapKey);  //출력된 swapKey의 값이 outKey의 값으로
+                            }
+                            else
+                            {
+                                //하위 subKey는 swapKey에서 부터 시작함으로 Swap실행
+                                Swap(ref outkey, ref swapKey);
+                            }
+                        }
+                        return true;
+                    case KeyCreateMode.Skip:
+                        for (int i = 0; i < keys.Length; i++)
+                        {
+                            if (OpenSubKey(inputKey, keys[i], out outkey) == false)
+                                return false;       //키가 없으니까 반환처리
+                        }
+                        return true;
+                    default:
+                        return false;
+                }
+            else
+                return false;
+        }
+        catch (Exception e)
+        { 
+            return false; 
+        }
+    }
+
+    public struct RegistryValues
+    {
+        
+    }
+
+    //c++코드랑 교차해서 확인 해야됨        
+    public static (bool, RegistryValues?) GetRegistryValue(in string subKey, string name) //GetValue가 false면 값이 존재하지 않음
+    {
+        var registry = OpenBaseKey(HKEY_CURRENT_USER);
+
+        if (CheckSubKey(in registry, in subKey, out IntPtr outkey) == false || outkey == IntPtr.Zero)
+            return (false, null);
+
+        uint type = 0;
+        uint valueSize = 0;
+
+         
+
+        //float값이 저장된 경우 string을 Span으로 바꾸고 맨 뒷 부분에 f를 제거하고 Float.TryParse
+        if (!GetValue(outkey, name, ref type, IntPtr.Zero, ref valueSize))
+        {
+            var valueKind = (RegistryValueKind)type;
+            UnityEngine.Debug.Log(valueKind);
+            return (false, null);
+        }
+        var valueKind2 = (RegistryValueKind)type;
+        UnityEngine.Debug.Log(valueKind2);
+        return (false, null);
+    }
+
+    public static bool DeleteKey()
+    {
+        return false;
+    }
+
+    //파일로 출력하는거 필요
+    public static bool SetRegistryValue<T>(RegistryValueKind kind, in string name, in T value)
+    {
+#if UNITY_STANDALONE_WIN
+        if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+        {
+            try
+            {
+                if (value == null || value is not T) //Null Check, Type Check
+                    return false;
+
+                var registry = OpenBaseKey(HKEY_CURRENT_USER);
+                if (OpenSubKey(registry, SUBKEY, out IntPtr outkey) == true) switch (kind)
+                    {
+                        //안정성을 위해 2중확인
+                        case RegistryValueKind.String:      //as 참조형식
+                        case RegistryValueKind.ExpandString:
+                            if (typeof(T) != typeof(string) || value is not string)
+                                return false;
+                            var _s = value as string;   // 참조형식이라 _v는 4(x86) or 8(x64) 바이트
+                            return SetRegistryValue(outkey, name, _s, (uint)kind);
+                        case RegistryValueKind.DWord:       //값 형식이라 Nullable 사용
+                            {
+                                //uint로 
+                                if (typeof(T) != typeof(uint))
+                                    return false;
+                                var uintValue = value as uint?;
+                                if (uintValue.HasValue == false)
+                                    return false;
+                                return SetRegistryValue(outkey, name, uintValue.Value);
+                            }
+                        case RegistryValueKind.QWord:
+                            {
+                                //18446744073709551615 ulong 최대값
+                                if (typeof(T) != typeof(ulong))
+                                    return false;
+                                var ulongValue = value as ulong?;
+                                if (ulongValue.HasValue == false)
+                                    return false;
+                                return SetRegistryValue(outkey, name, ulongValue.Value);
+                            }
+                        case RegistryValueKind.Binary:      //as 참조형식
+                            {
+                                //new byte[3] { 0x31, 0x32, 0x33 }
+                                if (typeof(T) != typeof(byte[]) || value is not byte[])
+                                    return false;
+                                var _b = value as byte[];
+                                //_b.Length는 SetRegistryValue에서 처리
+                                //_b이 null이거나 길이가 0인 경우 false반환, 1 이상인 경우 true반환
+                                // && 연산자 : 앞의 condition이 true면 && 뒤를 수행
+                                return (_b?.Length > 0 == true) && SetRegistryValue(outkey, name, _b);
+                            }
+
+                        case RegistryValueKind.None:
+                            return false;
+                        default:
+                            return false;
+                    }
+                else        //OpenSubKey을 했으니 SubKey가 존재하지 않을 때
+                {
+
+                }
+                return false;
+            }
+            catch (Exception e)
+            {
+                UnityEngine.Debug.Log(e);
+                return false;
+            }
+        }
+        else
+            return false;
+
+#else
+        return false;
+#endif
+    }
+
+#if OLD_VERSION
 
     public static bool RegistrySetValue<T>(in string subKey, in string keyName, in T value, RegistryValueKind kind, KeyCreateMode mode = KeyCreateMode.Create)
     {
@@ -433,79 +675,6 @@ public class Registrys
         }
     }
 
-    //Task 쓸꺼면 값 복사로 병렬작업을 하던가 lock
-    private static void Swap(ref IntPtr a, ref IntPtr b) => (b, a) = (a, b);
-    //문제없음 
-    public static bool CheckSubKey(in IntPtr inputKey, in string subKeyName, out IntPtr outkey, KeyCreateMode mode = KeyCreateMode.Create)
-    {
-        outkey = inputKey;
-        if (inputKey == IntPtr.Zero)
-            return false;
-        IntPtr swapKey = IntPtr.Zero;
-        try
-        {
-            var keys = subKeyName.Split(Path.DirectorySeparatorChar);
-
-            if (keys.Length != 0) switch (mode)
-                {
-                    case KeyCreateMode.Create:
-                        for (int i = 0; i < keys.Length; i++)
-                        {
-                            //if OpenSubKey failed, swapkey is IntPtr.Zero
-                            if (OpenSubKey(outkey, keys[i], out swapKey) == false)
-                            {
-                                //swapKey는 0가 되어버림
-                                CreateSubKey(outkey, keys[i], out swapKey); //SubKey를 만들고 swapKey에 할당
-                                Swap(ref outkey, ref swapKey);  //출력된 swapKey의 값이 outKey의 값으로
-                            }
-                            else
-                            {
-                                //하위 subKey는 swapKey에서 부터 시작함으로 Swap실행
-                                Swap(ref outkey, ref swapKey);
-                            }
-                        }
-                        return true;
-                    case KeyCreateMode.Skip:
-                        for (int i = 0; i < keys.Length; i++)
-                        {
-                            if (OpenSubKey(inputKey, keys[i], out outkey) == false)
-                                return false;       //키가 없으니까 반환처리
-                        }
-                        return true;
-                    default:
-                        return false;
-                }
-            else
-                return false;
-        }
-        catch (Exception e)
-        { 
-            return false; 
-        }
-    }
-
-    //c++코드랑 교차해서 확인 해야됨
-    public static bool GetRegistryKey()
-    {
-        var registry = OpenBaseKey(HKEY_CURRENT_USER);
-        uint type = 0;
-        uint valueSize = 0;
-        if (!GetValue(registry, "a", ref type, IntPtr.Zero, ref valueSize))
-        {
-            return false;
-        }
-        return false;
-    }
-
-    public static bool DeleteKey()
-    {
-        return false;
-    }
-
-    //파일로 출력하는거 필요
-
-
-#if OLD_VERSION
     //Task로 전환
     public static bool SetRegistryValue<T>(RegistryValueKind kind, in string name, in T value)
     {
