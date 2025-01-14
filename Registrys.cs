@@ -5,8 +5,9 @@
 
 using System;
 using System.Collections;
+using System.Collections.Generic;
+
 using Microsoft.Win32;
-using Microsoft.Win32.SafeHandles;
 using System.IO;
 using System.Text;
 using System.Diagnostics;
@@ -15,8 +16,13 @@ using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+
+
+
+using static UnityEngine.Rendering.DebugUI;
 using static Registrys;
-using System.Collections.Concurrent;
+
+
 
 
 //Mac은 보안 목적으로 FileSystem으로 byte 저장 (binary)
@@ -77,6 +83,39 @@ public class Registrys
 
     public const string SUBKEY = @"Software\McAfee";
     public const string KEYNAME = "HotKey";
+
+
+    //ImmutableStruct
+    public struct Registry_String
+    {
+        public readonly RegistryValueKind kind;
+        public readonly string keyName;
+    }
+    public struct Registry_DWORD
+    {
+
+    }
+
+    public struct Registry_QWORD
+    {
+
+    }
+
+    public struct Registry_Binary
+    {
+
+    }
+    public struct Registry_Float
+    {
+
+    }
+
+    public struct Registry_Vector3
+    {
+
+    }
+
+
 
 
 #if !USE_ASYNC
@@ -141,8 +180,94 @@ public class Registrys
     }
 #endif
 
+    public void EX_Function()
+    {
+        List<Test<string>> s = new List<Test<string>>{ new Test<string>(RegistryValueKind.String, "a", "b") };
+        List< Test<uint> > d = new List<Test<uint>>();
+        List<Test<ulong>> q = new List<Test<ulong>>();
+        List< Test<byte[]> > b = new List<Test<byte[]>>();
+
+        Action dispose = () =>
+        {
+            s.Clear(); s = null;
+            d.Clear(); d = null;
+            q.Clear(); q = null;
+            b.Clear(); b = null;
+        };
+
+        using (Union union = new Union(s, d, q, b, dispose))
+        {
+
+        }
+      
+    }
+
+    public class Union : IDisposable
+    {
+        // s = new List<Test<string>>();  // 컴파일 에러
+        public IReadOnlyList<Test<string>> s { get; private set; }
+        public IReadOnlyList<Test<uint>> d { get; private set; }
+        public IReadOnlyList<Test<ulong>> q { get; private set; }
+        public IReadOnlyList<Test<byte[]>> b { get; private set; }
+
+        public Action dispose { get; private set; }
+
+        public Union(List<Test<string>> s = null, List<Test<uint>> d = null, 
+            List<Test<ulong>> q = null, List<Test<byte[]>> b = null, Action dispose = null)
+        {
+            this.s = s.AsReadOnly();    //값 복사, 박싱이 없음
+            this.d = d.AsReadOnly();
+            this.q = q.AsReadOnly();
+            this.b = b.AsReadOnly();
+
+            this.s = s ?? new List<Test<string>>();
+
+            this.dispose = dispose;
+        }
+
+        public void Dispose()
+        {
+            dispose?.Invoke();
+            s = null; d = null; q = null; b = null;
+            dispose = null;
+        }
+    }
+
+    public struct Test<T>   //불변 처리
+    {
+        public readonly RegistryValueKind kind;
+        public readonly string name;       
+        public readonly T value;
+
+
+        public Test(RegistryValueKind kind, string name, T value)
+        {
+            this.kind = kind;
+            this.name = name;
+            this.value = value;
+        }
+        public Test(RegistryValueKind kind, ref string name, ref T value)
+        {
+            this.kind = kind;
+            this.name = name;
+            this.value = value;
+        }
+
+        public Test(ref RegistryValueKind kind, ref string name, ref T value)   //값 복사 회피
+        {
+            this.kind = kind;
+            this.name = name;
+            this.value = value;
+        }
+    }
+
+    public async Task testTask<T>(IReadOnlyList<T> asd)
+    {
+
+    }
 
     //폐기
+    /*
     public class ReferenceWrapper
     {
         public RegistryValueKind kind;  
@@ -156,6 +281,7 @@ public class Registrys
             ParameterType = value.GetType();
         }
     }
+    */
 
 
     //ValueWrapper 부분 다시 작성해야됨
@@ -179,6 +305,30 @@ public class Registrys
 
     //SetRegistryValue을 최대한 여러번 호출해서 CheckSubKey부분 접근을 줄여야함 + Task로 전환 시, ref in out 못씀
     //RegistrySetValueTest<T>가 아니고 RegistrySetValueTest로 접근하는게 맞음
+
+
+    public static bool RegistrySetValueTest<T>(in string subKey, in Test<T> t , KeyCreateMode mode = KeyCreateMode.Create)
+    {
+        var registry = OpenBaseKey(HKEY_CURRENT_USER);
+
+        if (CheckSubKey(in registry, in subKey, out IntPtr outkey, mode) == false || outkey == IntPtr.Zero)
+            return false;
+
+        //다중 호출 필요, kind, keyName, value 묶어서 한번에 전달
+        if (SetRegistryValue<T>(in outkey, t.kind, t.name, t.value) == false)
+            return false;
+
+        return true;
+    }
+    public static bool SetRegistryValue<T>(in IntPtr inputKey,  Test<T>? value)
+    {
+        if (value == null || value is not T) //Null Check, Type Check
+            return false;
+
+        return true;
+    }
+
+
     public static bool RegistrySetValueTest<T>(in string subKey, in string keyName, in T value, RegistryValueKind kind, KeyCreateMode mode = KeyCreateMode.Create)
     {
 #if UNITY_STANDALONE_WIN
