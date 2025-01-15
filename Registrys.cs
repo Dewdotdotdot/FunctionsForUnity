@@ -206,6 +206,7 @@ public class Registrys
         }
     }
 
+    //async가 아니면 ref, in, out 사용가능
     public Task Testingaa<T>(ref RegistryBlock<T> t)
     {
         return Task.CompletedTask;
@@ -256,6 +257,7 @@ public class Registrys
 
     public static string Vector2Encode(Vector2 v)
     {
+
         return null;
     }
     public static string Vector3Encode(Vector3 v)
@@ -483,29 +485,63 @@ public class Registrys
         
     }
 
-    //c++코드랑 교차해서 확인 해야됨        
-    public static (bool, RegistryValues?) GetRegistryValue(in string subKey, string name) //GetValue가 false면 값이 존재하지 않음
+    public static Tuple<bool, Tuple<string, uint, ulong, byte[]>> GetRegistryValue(in string subKey, string[] names)
     {
         var registry = OpenBaseKey(HKEY_CURRENT_USER);
 
         if (CheckSubKey(in registry, in subKey, out IntPtr outkey) == false || outkey == IntPtr.Zero)
-            return (false, null);
+            return null;
 
-        uint type = 0;
-        uint valueSize = 0;
-
-         
-
-        //float값이 저장된 경우 string을 Span으로 바꾸고 맨 뒷 부분에 f를 제거하고 Float.TryParse
-        if (!GetValue(outkey, name, ref type, IntPtr.Zero, ref valueSize))
+        for (int i = 0; i < names.Length; i++)
         {
-            var valueKind = (RegistryValueKind)type;
-            UnityEngine.Debug.Log(valueKind);
-            return (false, null);
+
         }
-        var valueKind2 = (RegistryValueKind)type;
-        UnityEngine.Debug.Log(valueKind2);
-        return (false, null);
+
+        return null;
+    }
+
+
+    //c++코드랑 교차해서 확인 해야됨        
+    public static bool GetRegistryValue(in IntPtr inputKey, in string name, out RegistryValueKind kind, ref Tuple<string, uint, ulong, byte[]> tuple) //GetValue가 false면 값이 존재하지 않음
+    {
+        try
+        {
+            uint type = 0;
+            uint valueSize = 0;
+            kind = RegistryValueKind.None;
+            IntPtr value = IntPtr.Zero;
+            //float값이 저장된 경우 string을 Span으로 바꾸고 맨 뒷 부분에 f를 제거하고 Float.TryParse
+            if (GetValue(inputKey, name, ref type, value, ref valueSize) == true) switch (kind = (RegistryValueKind)type)
+                {
+                    case RegistryValueKind.String:
+                        var s_val = Marshal.PtrToStringAnsi(value);
+                        return false;
+                    case RegistryValueKind.ExpandString:
+                        var es_val = Marshal.PtrToStringAnsi(value);
+                        return false;
+                    case RegistryValueKind.DWord:
+                        var d_val = (uint)Marshal.ReadInt32(value);
+                        return false;
+                    case RegistryValueKind.QWord:
+                        var q_val = (ulong)Marshal.ReadInt64(value);
+                        return false;
+                    case RegistryValueKind.Binary:
+                        byte[] data = new byte[valueSize];
+                        Marshal.Copy(value, data, 0, data.Length);
+                        return false;
+                    case RegistryValueKind.Unknown:
+                        return false;
+                    default:
+                        return false;
+                }
+            else
+                return false;
+        }
+        catch (Exception e)
+        {
+            kind = RegistryValueKind.None;
+            return false;
+        }
     }
 
     public static bool DeleteKey()
