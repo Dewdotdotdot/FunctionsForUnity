@@ -1,6 +1,6 @@
 # README
 
-## **Registrys.cs**
+## [Registrys.cs](./Registrys.cs)
 .NET **Standard 2.1**에서는 `Registry` (`using Microsoft.Win32.Registry`)가 사용이 불가능해서
 .NET Framework를 사용하지 않고 **Standard 2.1**을 유지하면서 레지스트리 키를 편집하기 위해 작성된 코드
 
