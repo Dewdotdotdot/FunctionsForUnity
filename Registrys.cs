@@ -4,24 +4,12 @@
 
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
-
-using Microsoft.Win32;
 using System.IO;
-using System.Text;
-using System.Diagnostics;
-using System.Security.Principal;
-using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-
-
-
-using static UnityEngine.Rendering.DebugUI;
-using static Registrys;
-using static UnityEngine.InputManagerEntry;
+using Microsoft.Win32;
 using UnityEngine;
 
 
@@ -87,16 +75,18 @@ public class Registrys
     public const string KEYNAME = "HotKey";
 
 
-
+    //Task Dispose 추가 필요
 #if USE_ASYNC
     public async static Task<bool> RegistrySetValue<T>(string subKey, string keyName, T value, RegistryValueKind kind, KeyCreateMode mode = KeyCreateMode.Create)
     {
         UnityEngine.Debug.Log(Thread.CurrentThread.ManagedThreadId);
         var registry = OpenBaseKey(HKEY_CURRENT_USER);
         //키 확인
-        var task = await Task<IntPtr>.Run(() => CheckSubKeyAsync(registry, subKey));
+        var task = Task<IntPtr>.Run(() => CheckSubKeyAsync(registry, subKey));
+        var taskResult = await task;
         //값 추가
-        UnityEngine.Debug.Log(task.ToString());
+        UnityEngine.Debug.Log(taskResult.ToString());
+        task.Dispose();        task = null;     //메모리 해제
         return true;
     }
     public static Task<IntPtr> CheckSubKeyAsync(in IntPtr inputKey, in string subKeyName, KeyCreateMode mode = KeyCreateMode.Create)
@@ -174,13 +164,14 @@ public class Registrys
             b.Clear(); b = null;
         };
 
-        using (Union union = new Union(s, d, q, b, dispose))
+        using (UnionInput union = new UnionInput(s, d, q, b, dispose))
         {
             RegistrySetValue(SUBKEY, in union, KeyCreateMode.Create);
         }
      
     }
 
+    [System.Serializable]
     public struct RegistryBlock<T>   //불변 처리
     {
         public readonly RegistryValueKind kind;
@@ -213,7 +204,7 @@ public class Registrys
     }
 
     [System.Serializable]
-    public class Union : IDisposable
+    public class UnionInput : IDisposable
     {
         // s = new List<Test<string>>();  // 컴파일 에러
         public IReadOnlyList<RegistryBlock<string>> s { get; private set; }
@@ -223,7 +214,7 @@ public class Registrys
 
         public Action dispose { get; private set; }
 
-        public Union(List<RegistryBlock<string>> s = null, List<RegistryBlock<uint>> d = null, 
+        public UnionInput(List<RegistryBlock<string>> s = null, List<RegistryBlock<uint>> d = null, 
             List<RegistryBlock<ulong>> q = null, List<RegistryBlock<byte[]>> b = null, Action dispose = null)
         {
             //AsReadOnly는 값 복사, 박싱이 없음
@@ -305,7 +296,7 @@ public class Registrys
 
     //SetRegistryValue을 최대한 여러번 호출해서 CheckSubKey부분 접근을 줄여야함 + Task로 전환 시, ref in out 못씀
     //RegistrySetValueTest<T>가 아니고 RegistrySetValueTest로 접근하는게 맞음
-    public static bool RegistrySetValue(in string subKey, in Union value, KeyCreateMode mode = KeyCreateMode.Create)
+    public static bool RegistrySetValue(in string subKey, in UnionInput value, KeyCreateMode mode = KeyCreateMode.Create)
     {
 #if UNITY_STANDALONE_WIN
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) == false)
@@ -480,66 +471,139 @@ public class Registrys
         }
     }
 
-    public struct RegistryValues
+    /*
+    public class UnionOuput : IDisposable
     {
-        
+        private object s_lock = new object();
+        private object d_lock = new object();
+        private object q_lock = new object();
+        private object b_lock = new object();
+
+        public List<RegistryBlock<string>> s { get; private set; }
+        public List<RegistryBlock<uint>> d { get; private set; }
+        public List<RegistryBlock<ulong>> q { get; private set; }
+        public List<RegistryBlock<byte[]>> b { get; private set; }
+    }
+    */
+    [System.Serializable]
+    public class UnionOuput : IDisposable       //여기는 다중접근 해도 됨
+    {
+        public UnionOuput()
+        {
+            s = new ThreadSafeList<RegistryBlock<string>>();
+            d = new ThreadSafeList<RegistryBlock<uint>>();
+            q = new ThreadSafeList<RegistryBlock<ulong>>();
+            b = new ThreadSafeList<RegistryBlock<byte[]>>();
+
+            Skipped = new ThreadSafeList<string>();
+        }
+
+        //Async 때문에 구현됨
+        public ThreadSafeList<RegistryBlock<string>> s { get; private set; }
+        public ThreadSafeList<RegistryBlock<uint>> d { get; private set; }
+        public ThreadSafeList<RegistryBlock<ulong>> q { get; private set; }
+        public ThreadSafeList<RegistryBlock<byte[]>> b { get; private set; }
+
+        public ThreadSafeList<string> Skipped { get; private set; }
+
+        public void Dispose()
+        {
+            s.Dispose(); s = null;
+            d.Dispose(); d = null;
+            q.Dispose(); q = null;
+            b.Dispose(); b = null;
+            Skipped.Dispose(); Skipped = null;
+        }
     }
 
-    public static Tuple<bool, Tuple<string, uint, ulong, byte[]>> GetRegistryValue(in string subKey, string[] names)
+
+    public static UnionOuput GetRegistryValue(in string subKey, string[] names, UnionOuput unionOuput = null)
     {
         var registry = OpenBaseKey(HKEY_CURRENT_USER);
 
+        if(names.Length == 0 || names == null)
+        {
+            return null;
+        }
+        
         if (CheckSubKey(in registry, in subKey, out IntPtr outkey) == false || outkey == IntPtr.Zero)
             return null;
 
+
+        unionOuput ??= new UnionOuput();
+
+
+
         for (int i = 0; i < names.Length; i++)
         {
-
+            if (GetRegistryValue(in outkey, names[i], ref unionOuput) == false)
+            {
+                UnityEngine.Debug.Log(names[i]);       
+                unionOuput.Skipped.Add(names[i]);
+            }
         }
 
-        return null;
+        return unionOuput;
     }
 
 
-    //c++코드랑 교차해서 확인 해야됨        
-    public static bool GetRegistryValue(in IntPtr inputKey, in string name, out RegistryValueKind kind, ref Tuple<string, uint, ulong, byte[]> tuple) //GetValue가 false면 값이 존재하지 않음
+    //c++코드랑 교차해서 확인 해야됨        //GetValue가 false면 값이 존재하지 않음s
+    public static bool GetRegistryValue(in IntPtr inputKey, string name, ref UnionOuput output)    //비동기 처리 가능
     {
         try
         {
             uint type = 0;
-            uint valueSize = 0;
-            kind = RegistryValueKind.None;
-            IntPtr value = IntPtr.Zero;
+            uint valueSize = 1024;
+            RegistryValueKind kind = RegistryValueKind.None;
+            IntPtr value = Marshal.AllocHGlobal((int)valueSize);
             //float값이 저장된 경우 string을 Span으로 바꾸고 맨 뒷 부분에 f를 제거하고 Float.TryParse
             if (GetValue(inputKey, name, ref type, value, ref valueSize) == true) switch (kind = (RegistryValueKind)type)
                 {
                     case RegistryValueKind.String:
-                        var s_val = Marshal.PtrToStringAnsi(value);
-                        return false;
                     case RegistryValueKind.ExpandString:
+                        if (value == IntPtr.Zero)
+                            return false;
                         var es_val = Marshal.PtrToStringAnsi(value);
-                        return false;
+                        output.s.Add(new RegistryBlock<string>(kind, name, es_val));
+                        return true;
                     case RegistryValueKind.DWord:
+                        Debug.Log(value.ToString());
+                        if (value == IntPtr.Zero)
+                            return false;
                         var d_val = (uint)Marshal.ReadInt32(value);
-                        return false;
+                        output.d.Add(new RegistryBlock<uint>(kind, name, d_val));
+                        return true;
                     case RegistryValueKind.QWord:
+                        if(value == IntPtr.Zero)
+                            return false;
+                        Debug.Log(value.ToString());
+
                         var q_val = (ulong)Marshal.ReadInt64(value);
-                        return false;
+                        output.q.Add(new RegistryBlock<ulong>(kind, name, q_val));
+                        return true;
                     case RegistryValueKind.Binary:
+                        if (value == IntPtr.Zero)
+                            return false;
                         byte[] data = new byte[valueSize];
                         Marshal.Copy(value, data, 0, data.Length);
-                        return false;
+                        output.b.Add(new RegistryBlock<byte[]>(kind, name, data));
+                        return true;
                     case RegistryValueKind.Unknown:
                         return false;
                     default:
                         return false;
                 }
             else
+            {
+                UnityEngine.Debug.Log("GetValue Error");
                 return false;
+            }
+
         }
         catch (Exception e)
         {
-            kind = RegistryValueKind.None;
+           RegistryValueKind kind = RegistryValueKind.None;
+            UnityEngine.Debug.Log(e);
             return false;
         }
     }

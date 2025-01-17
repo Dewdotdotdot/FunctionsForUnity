@@ -3,7 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 
-
+[System.Serializable]
 public class ThreadSafeList<T> : IList<T>, IEnumerable<T>, IDisposable, IEnumerable
 {
     private object _lock = new object();
