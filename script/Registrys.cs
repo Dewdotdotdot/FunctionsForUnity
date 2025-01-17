@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
 using UnityEngine;
+using static Registrys;
 
 
 
@@ -73,6 +74,30 @@ public class Registrys
 
     public const string SUBKEY = @"Software\McAfee";
     public const string KEYNAME = "HotKey";
+
+
+    public static string FloatEncode(float f)
+    {
+        return f.ToString() + "f";
+    }
+    public static bool FloatDecode(string s, out float f)
+    {
+        ReadOnlySpan<char> span = s.AsSpan();
+        span.Slice(0, span.Length - 1);
+        return float.TryParse(span, out f);
+    }
+
+#if UNITY_STANDALONE
+    public static string Vector2Encode(Vector2 v)
+    {
+
+        return null;
+    }
+    public static string Vector3Encode(Vector3 v)
+    {
+        return null;
+    }
+#endif
 
 
     //Task Dispose 추가 필요
@@ -142,16 +167,17 @@ public class Registrys
 
     public static void EX_Function()
     {
+        //SetRegistryValue
         List<RegistryBlock<string>> s = new List<RegistryBlock<string>>();
-        List<RegistryBlock<uint> > d = new List<RegistryBlock<uint>>();
+        List<RegistryBlock<uint>> d = new List<RegistryBlock<uint>>();
         List<RegistryBlock<ulong>> q = new List<RegistryBlock<ulong>>();
-        List<RegistryBlock<byte[]> > b = new List<RegistryBlock<byte[]>>();
+        List<RegistryBlock<byte[]>> b = new List<RegistryBlock<byte[]>>();
 
-        s.Add(new RegistryBlock<string>( RegistryValueKind.String, "Test S 1", "tt"));
-        s.Add(new RegistryBlock<string>( RegistryValueKind.ExpandString, "Test ES 1", "GIGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
-        d.Add(new RegistryBlock<uint>( RegistryValueKind.DWord, KEYNAME, 0X31));
-        d.Add(new RegistryBlock<uint>( RegistryValueKind.DWord, KEYNAME + "  2", 0X81));
-        q.Add(new RegistryBlock<ulong>( RegistryValueKind.QWord, "Test Q 1", 8451281523187));                                                                         
+        s.Add(new RegistryBlock<string>(RegistryValueKind.String, "Test S 1", "tt"));
+        s.Add(new RegistryBlock<string>(RegistryValueKind.ExpandString, "Test ES 1", "GIGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
+        d.Add(new RegistryBlock<uint>(RegistryValueKind.DWord, KEYNAME, 0X31));
+        d.Add(new RegistryBlock<uint>(RegistryValueKind.DWord, KEYNAME + "  2", 0X81));
+        q.Add(new RegistryBlock<ulong>(RegistryValueKind.QWord, "Test Q 1", 8451281523187));
         q.Add(new RegistryBlock<ulong>(RegistryValueKind.QWord, "Test Q 2", 78764443425234235));
         q.Add(new RegistryBlock<ulong>(RegistryValueKind.QWord, "Test Q 3", 675756864653543));
         q.Add(new RegistryBlock<ulong>(RegistryValueKind.QWord, "Test Q 4", 546352432));
@@ -165,10 +191,28 @@ public class Registrys
         };
 
         using (UnionInput union = new UnionInput(s, d, q, b, dispose))
-        {
             RegistrySetValue(SUBKEY, in union, KeyCreateMode.Create);
+
+
+        //GetRegistryValue
+        UnionOuput unionOuput = Registrys.GetRegistryValue(Registrys.SUBKEY, new string[]
+        {
+                "Test Q 4", "HotKey  2", "Test Q 3",  "Test Q", "Test ES 1", "Test S 1",
+                 "Test Q 1", "HotKey", "Test Q 2"
+        });
+        if (unionOuput == null)
+            Debug.Log("Null");
+        else
+        {
+            foreach (var data in unionOuput.s)
+                Debug.Log(data.name + " : " + data.value);
+            foreach (var data in unionOuput.d)
+                Debug.Log(data.name + " : " + data.value);
+            foreach (var data in unionOuput.q)
+                Debug.Log(data.name + " : " + data.value);
+            foreach (var data in unionOuput.b)
+                Debug.Log(data.name + " : " + data.value);
         }
-     
     }
 
     [System.Serializable]
@@ -198,10 +242,6 @@ public class Registrys
     }
 
     //async가 아니면 ref, in, out 사용가능
-    public Task Testingaa<T>(ref RegistryBlock<T> t)
-    {
-        return Task.CompletedTask;
-    }
 
     [System.Serializable]
     public class UnionInput : IDisposable
@@ -235,47 +275,58 @@ public class Registrys
     }
 
 
-    public static string FloatEncode(float f)
+    //Task 쓸꺼면 값 복사로 병렬작업을 하던가 lock
+    private static void Swap(ref IntPtr a, ref IntPtr b) => (b, a) = (a, b);
+    //문제없음 
+    public static bool CheckSubKey(in IntPtr inputKey, in string subKeyName, out IntPtr outkey, KeyCreateMode mode = KeyCreateMode.Create)
     {
-        return f.ToString() + "f";
-    }
-    public static bool FloatDecode(string s, out float  f)
-    {
-        ReadOnlySpan<char> span = s.AsSpan();
-        span.Slice(0, span.Length - 1);
-        return float.TryParse(span, out f);
-    }
-
-    public static string Vector2Encode(Vector2 v)
-    {
-
-        return null;
-    }
-    public static string Vector3Encode(Vector3 v)
-    {
-        return null;
-    }
-
-
-    //폐기
-    /*
-    public class ReferenceWrapper
-    {
-        public RegistryValueKind kind;  
-        public string keyName;
-        public Type ParameterType { get; }
-        public object Value { get; }
-
-        public ReferenceWrapper(object value)
+        outkey = inputKey;
+        if (inputKey == IntPtr.Zero)
+            return false;
+        IntPtr swapKey = IntPtr.Zero;
+        try
         {
-            Value = value;
-            ParameterType = value.GetType();
+            var keys = subKeyName.Split(Path.DirectorySeparatorChar);
+
+            if (keys.Length != 0) switch (mode)
+                {
+                    case KeyCreateMode.Create:
+                        for (int i = 0; i < keys.Length; i++)
+                        {
+                            //if OpenSubKey failed, swapkey is IntPtr.Zero
+                            if (OpenSubKey(outkey, keys[i], out swapKey) == false)
+                            {
+                                //swapKey는 0가 되어버림
+                                CreateSubKey(outkey, keys[i], out swapKey); //SubKey를 만들고 swapKey에 할당
+                                Swap(ref outkey, ref swapKey);  //출력된 swapKey의 값이 outKey의 값으로
+                            }
+                            else
+                            {
+                                //하위 subKey는 swapKey에서 부터 시작함으로 Swap실행
+                                Swap(ref outkey, ref swapKey);
+                            }
+                        }
+                        return true;
+                    case KeyCreateMode.Skip:
+                        for (int i = 0; i < keys.Length; i++)
+                        {
+                            if (OpenSubKey(inputKey, keys[i], out outkey) == false)
+                                return false;       //키가 없으니까 반환처리
+                        }
+                        return true;
+                    default:
+                        return false;
+                }
+            else
+                return false;
+        }
+        catch (Exception e)
+        {
+            return false;
         }
     }
-    */
 
 
-    //ValueWrapper 부분 다시 작성해야됨
 
     //타입별 List<T> 방식이 타당한 이유
     //class 통째로 넘기면 참조가 맞긴함
@@ -309,13 +360,9 @@ public class Registrys
         //다중 호출 필요, kind, keyName, value 묶어서 한번에 전달
         if(value.s != null)
         {
-            UnityEngine.Debug.Log(value.s.Count);
-            UnityEngine.Debug.Log(value.s[0]);
-            UnityEngine.Debug.Log(value.s[1]);
             for (int i = 0; i < value.s.Count; i++)
             {
                 //다음 루프에서 스택에 의해 해제(GC아님)
-
                 var data = value.s[i]; //string은 참조 복사
                 if (SetRegistryValue<string>(in outkey, in data) == false)
                     return false;
@@ -419,59 +466,7 @@ public class Registrys
     }
 
 
-
-    //Task 쓸꺼면 값 복사로 병렬작업을 하던가 lock
-    private static void Swap(ref IntPtr a, ref IntPtr b) => (b, a) = (a, b);
-    //문제없음 
-    public static bool CheckSubKey(in IntPtr inputKey, in string subKeyName, out IntPtr outkey, KeyCreateMode mode = KeyCreateMode.Create)
-    {
-        outkey = inputKey;
-        if (inputKey == IntPtr.Zero)
-            return false;
-        IntPtr swapKey = IntPtr.Zero;
-        try
-        {
-            var keys = subKeyName.Split(Path.DirectorySeparatorChar);
-
-            if (keys.Length != 0) switch (mode)
-                {
-                    case KeyCreateMode.Create:
-                        for (int i = 0; i < keys.Length; i++)
-                        {
-                            //if OpenSubKey failed, swapkey is IntPtr.Zero
-                            if (OpenSubKey(outkey, keys[i], out swapKey) == false)
-                            {
-                                //swapKey는 0가 되어버림
-                                CreateSubKey(outkey, keys[i], out swapKey); //SubKey를 만들고 swapKey에 할당
-                                Swap(ref outkey, ref swapKey);  //출력된 swapKey의 값이 outKey의 값으로
-                            }
-                            else
-                            {
-                                //하위 subKey는 swapKey에서 부터 시작함으로 Swap실행
-                                Swap(ref outkey, ref swapKey);
-                            }
-                        }
-                        return true;
-                    case KeyCreateMode.Skip:
-                        for (int i = 0; i < keys.Length; i++)
-                        {
-                            if (OpenSubKey(inputKey, keys[i], out outkey) == false)
-                                return false;       //키가 없으니까 반환처리
-                        }
-                        return true;
-                    default:
-                        return false;
-                }
-            else
-                return false;
-        }
-        catch (Exception e)
-        { 
-            return false; 
-        }
-    }
-
-    /*
+    /*  ThreadSafeList로 대체됨
     public class UnionOuput : IDisposable
     {
         private object s_lock = new object();
@@ -519,21 +514,20 @@ public class Registrys
 
     public static UnionOuput GetRegistryValue(in string subKey, string[] names, UnionOuput unionOuput = null)
     {
+#if UNITY_STANDALONE_WIN
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) == false)
+            return null;
+        if (names.Length == 0 || names == null)
+            return null;
         var registry = OpenBaseKey(HKEY_CURRENT_USER);
 
-        if(names.Length == 0 || names == null)
+        if (CheckSubKey(in registry, in subKey, out IntPtr outkey) == false || outkey == IntPtr.Zero)
         {
+            CloseKeys(registry, outkey);
             return null;
         }
-        
-        if (CheckSubKey(in registry, in subKey, out IntPtr outkey) == false || outkey == IntPtr.Zero)
-            return null;
-
 
         unionOuput ??= new UnionOuput();
-
-
-
         for (int i = 0; i < names.Length; i++)
         {
             if (GetRegistryValue(in outkey, names[i], ref unionOuput) == false)
@@ -542,14 +536,17 @@ public class Registrys
                 unionOuput.Skipped.Add(names[i]);
             }
         }
-
+        CloseKeys(registry, outkey);
         return unionOuput;
+#else
+        return null;
+#endif
     }
 
 
     //c++코드랑 교차해서 확인 해야됨        //GetValue가 false면 값이 존재하지 않음s
     public static bool GetRegistryValue(in IntPtr inputKey, string name, ref UnionOuput output)    //비동기 처리 가능
-    {
+    { 
         try
         {
             uint type = 0;
@@ -598,19 +595,61 @@ public class Registrys
                 UnityEngine.Debug.Log("GetValue Error");
                 return false;
             }
-
         }
         catch (Exception e)
         {
-           RegistryValueKind kind = RegistryValueKind.None;
+            RegistryValueKind kind = RegistryValueKind.None;
             UnityEngine.Debug.Log(e);
             return false;
         }
     }
 
-    public static bool DeleteKey()
+    public static bool DeleteSubkey(in string subKey)
     {
+#if UNITY_STANDALONE_WIN
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) == false)
+            return false;
+        var registry = OpenBaseKey(HKEY_CURRENT_USER);
+        var success = DeleteSubKey(registry, subKey);
+        CloseKeys(registry);
+        return success;
+#else
         return false;
+#endif
+    }
+    public static bool DeleteKey(in string subKey, in string valueName)
+    {
+#if UNITY_STANDALONE_WIN
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) == false)
+            return false;
+        var registry = OpenBaseKey(HKEY_CURRENT_USER);
+        if (CheckSubKey(in registry, in subKey, out IntPtr outkey) == false || outkey == IntPtr.Zero)
+        {
+            CloseKeys(registry, outkey);
+            return false;
+        }
+        var success = DeleteValue(outkey, valueName);
+        CloseKeys(registry, outkey);
+        return success;
+#else
+        return false;
+#endif
+    }
+
+    private static bool CloseKeys(params IntPtr[] keys) //열린 레지스트리 키 핸들을 닫음  ***무조건 호출
+    {
+        try
+        {
+            for (int i = 0; i < keys.Length; i++)
+            {
+                CloseKey(keys[i]);
+            }
+            return true;
+        }
+        catch (Exception e)
+        {
+            return false;
+        }
     }
 
     //파일로 출력하는거 필요
@@ -671,10 +710,6 @@ public class Registrys
                         default:
                             return false;
                     }
-                else        //OpenSubKey을 했으니 SubKey가 존재하지 않을 때
-                {
-
-                }
                 return false;
             }
             catch (Exception e)
@@ -690,6 +725,90 @@ public class Registrys
         return false;
 #endif
     }
+
+    //************************** DLL Imports ******************************//
+
+    //Get BaseKey
+    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr OpenBaseKey(IntPtr baseKey);
+
+
+    //Modify SubKey
+    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern bool OpenSubKey(IntPtr baseKey, string subKey, out IntPtr outKey);
+
+    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern bool CreateSubKey(IntPtr baseKey, string subKey, out IntPtr outKey);
+
+    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern bool DeleteSubKey(IntPtr baseKey, string subKey);
+
+    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern bool DeleteSubKeyTree(IntPtr baseKey, string subKey);
+
+
+    //Modify Key
+    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern bool GetValue(IntPtr key, string valueName, ref uint valueType, IntPtr value, ref uint valueSize);
+
+    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern bool SetValue(IntPtr key, string valueName, IntPtr value, uint valueType, uint valueSize = 0);
+
+    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern bool DeleteValue(IntPtr key, string valueName);
+
+    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void CloseKey(IntPtr key);
+
+
+    // Set a string value in the registry (REG_SZ, REG_EXPAND_SZ)
+    public static bool SetRegistryValue(IntPtr key, string valueName, string value, uint valueType)
+    {
+        if (valueType == 1 /* REG_SZ */ || valueType == 2 /* REG_EXPAND_SZ */)
+        {
+            IntPtr valuePtr = Marshal.StringToHGlobalAnsi(value);
+            bool result = SetValue(key, valueName, valuePtr, valueType);
+            Marshal.FreeHGlobal(valuePtr); // Clean up
+            return result;
+        }
+        else
+        {
+            throw new InvalidOperationException("Unsupported value type for string.");
+        }
+    }
+
+    // Set an integer value in the registry (REG_DWORD)
+    public static bool SetRegistryValue(IntPtr key, string valueName, uint value)
+    {
+        IntPtr valuePtr = Marshal.AllocHGlobal(sizeof(uint));
+        Marshal.StructureToPtr(value, valuePtr, false);
+        bool result = SetValue(key, valueName, valuePtr, 4 /* REG_DWORD */);
+        Marshal.FreeHGlobal(valuePtr); // Clean up
+        return result;
+    }
+
+    // Set a long value in the registry (REG_QWORD)
+    public static bool SetRegistryValue(IntPtr key, string valueName, ulong value)
+    {
+        IntPtr valuePtr = Marshal.AllocHGlobal(sizeof(ulong));
+        Marshal.StructureToPtr(value, valuePtr, false);
+        bool result = SetValue(key, valueName, valuePtr, 11 /* REG_QWORD */);
+        Marshal.FreeHGlobal(valuePtr); // Clean up
+        return result;
+    }
+
+    // Set binary data in the registry (REG_BINARY)
+    public static bool SetRegistryValue(IntPtr key, string valueName, byte[] value)
+    {
+        IntPtr valuePtr = Marshal.AllocHGlobal(value.Length);
+        Marshal.Copy(value, 0, valuePtr, value.Length);
+        bool result = SetValue(key, valueName, valuePtr, 3 /* REG_BINARY */, (uint)value.Length);
+        Marshal.FreeHGlobal(valuePtr); // Clean up
+        return result;
+    }
+}
+
+
 
 #if OLD_VERSION
 
@@ -853,98 +972,3 @@ public class Registrys
 #endif
     }
 #endif
-
-
-
-
-    public static bool TestDebug(out string log)
-    {
-        string testkey = @"Software\McAfee3\TestA\TestB";
-        var registry = OpenBaseKey(HKEY_CURRENT_USER);
-        bool a = CheckSubKey(in registry, testkey, out IntPtr outKey, KeyCreateMode.Create);
-        log = outKey.ToString();
-        return a;
-    }
-
-
-    //************************** DLL Imports ******************************//
-
-    //Get BaseKey
-    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr OpenBaseKey(IntPtr baseKey);
-
-
-    //Modify SubKey
-    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern bool OpenSubKey(IntPtr baseKey, string subKey, out IntPtr outKey);
-
-    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern bool CreateSubKey(IntPtr baseKey, string subKey, out IntPtr outKey);
-
-    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern bool DeleteSubKey(IntPtr baseKey, string subKey);
-
-    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern bool DeleteSubKeyTree(IntPtr baseKey, string subKey);
-
-
-    //Modify Key
-    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern bool GetValue(IntPtr key, string valueName, ref uint valueType, IntPtr value, ref uint valueSize);
-
-    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern bool SetValue(IntPtr key, string valueName, IntPtr value, uint valueType, uint valueSize = 0);
-
-    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern bool DeleteValue(IntPtr key, string valueName);
-
-    [DllImport("RegistryKey.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void CloseKey(IntPtr key);
-
-
-    // Set a string value in the registry (REG_SZ, REG_EXPAND_SZ)
-    public static bool SetRegistryValue(IntPtr key, string valueName, string value, uint valueType)
-    {
-        if (valueType == 1 /* REG_SZ */ || valueType == 2 /* REG_EXPAND_SZ */)
-        {
-            IntPtr valuePtr = Marshal.StringToHGlobalAnsi(value);
-            bool result = SetValue(key, valueName, valuePtr, valueType);
-            Marshal.FreeHGlobal(valuePtr); // Clean up
-            return result;
-        }
-        else
-        {
-            throw new InvalidOperationException("Unsupported value type for string.");
-        }
-    }
-
-    // Set an integer value in the registry (REG_DWORD)
-    public static bool SetRegistryValue(IntPtr key, string valueName, uint value)
-    {
-        IntPtr valuePtr = Marshal.AllocHGlobal(sizeof(uint));
-        Marshal.StructureToPtr(value, valuePtr, false);
-        bool result = SetValue(key, valueName, valuePtr, 4 /* REG_DWORD */);
-        Marshal.FreeHGlobal(valuePtr); // Clean up
-        return result;
-    }
-
-    // Set a long value in the registry (REG_QWORD)
-    public static bool SetRegistryValue(IntPtr key, string valueName, ulong value)
-    {
-        IntPtr valuePtr = Marshal.AllocHGlobal(sizeof(ulong));
-        Marshal.StructureToPtr(value, valuePtr, false);
-        bool result = SetValue(key, valueName, valuePtr, 11 /* REG_QWORD */);
-        Marshal.FreeHGlobal(valuePtr); // Clean up
-        return result;
-    }
-
-    // Set binary data in the registry (REG_BINARY)
-    public static bool SetRegistryValue(IntPtr key, string valueName, byte[] value)
-    {
-        IntPtr valuePtr = Marshal.AllocHGlobal(value.Length);
-        Marshal.Copy(value, 0, valuePtr, value.Length);
-        bool result = SetValue(key, valueName, valuePtr, 3 /* REG_BINARY */, (uint)value.Length);
-        Marshal.FreeHGlobal(valuePtr); // Clean up
-        return result;
-    }
-}
