@@ -6,11 +6,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
-using UnityEngine;
+
 using static Registrys;
 
 
@@ -56,15 +57,33 @@ namespace NoneWin32
 }
 
 [System.Serializable]
-public class Registrys
+public class Registrys      //빌드 후, 정상적으로 작동하는 거 확인했음
 {
     public enum KeyCreateMode
     {
         Skip,
         Create
     }
-
+    public enum Base
+    {
+        CLASS_ROOT,
+        CURRENT_CONFIG,
+        CURRENT_USER,
+        LOCAL_MACHINE,
+        PERFORMANCE_DATA,
+        USER
+    }
     // Base Keys Constants
+    public static IntPtr GetRootKey(Base key) => key switch
+    {
+        Base.CLASS_ROOT => HKEY_CLASSES_ROOT,
+        Base.CURRENT_CONFIG => HKEY_CURRENT_CONFIG,
+        Base.CURRENT_USER => HKEY_CURRENT_USER,
+        Base.LOCAL_MACHINE => HKEY_LOCAL_MACHINE,
+        Base.PERFORMANCE_DATA => HKEY_PERFORMANCE_DATA,
+        Base.USER => HKEY_CURRENT_USER,
+        _ => IntPtr.Zero,
+    };
     public static readonly IntPtr HKEY_CLASSES_ROOT = (IntPtr)0x80000000;
     public static readonly IntPtr HKEY_CURRENT_CONFIG = (IntPtr)0x80000005;
     public static readonly IntPtr HKEY_CURRENT_USER = (IntPtr)0x80000001;
@@ -76,28 +95,6 @@ public class Registrys
     public const string KEYNAME = "HotKey";
 
 
-    public static string FloatEncode(float f)
-    {
-        return f.ToString() + "f";
-    }
-    public static bool FloatDecode(string s, out float f)
-    {
-        ReadOnlySpan<char> span = s.AsSpan();
-        span.Slice(0, span.Length - 1);
-        return float.TryParse(span, out f);
-    }
-
-#if UNITY_STANDALONE
-    public static string Vector2Encode(Vector2 v)
-    {
-
-        return null;
-    }
-    public static string Vector3Encode(Vector3 v)
-    {
-        return null;
-    }
-#endif
 
 
     //Task Dispose 추가 필요
@@ -191,8 +188,14 @@ public class Registrys
         };
 
         using (UnionInput union = new UnionInput(s, d, q, b, dispose))
-            RegistrySetValue(SUBKEY, in union, KeyCreateMode.Create);
-
+        {
+            RegistrySetValue(Base.CURRENT_USER,SUBKEY, in union, KeyCreateMode.Create);
+            if (union.Skipped.Count > 0)
+                foreach (var data in union.Skipped)
+                    UnityEngine.Debug.Log("Error Skipped   :   " + data);
+            else
+                UnityEngine.Debug.Log("All datas added successfully");
+        }
 
         //GetRegistryValue
         UnionOuput unionOuput = Registrys.GetRegistryValue(Registrys.SUBKEY, new string[]
@@ -200,19 +203,39 @@ public class Registrys
                 "Test Q 4", "HotKey  2", "Test Q 3",  "Test Q", "Test ES 1", "Test S 1",
                  "Test Q 1", "HotKey", "Test Q 2"
         });
+
         if (unionOuput == null)
-            Debug.Log("Null");
+            UnityEngine.Debug.Log("Null");
         else
         {
             foreach (var data in unionOuput.s)
-                Debug.Log(data.name + " : " + data.value);
+                UnityEngine.Debug.Log(data.name + " : " + data.value);
             foreach (var data in unionOuput.d)
-                Debug.Log(data.name + " : " + data.value);
+                UnityEngine.Debug.Log(data.name + " : " + data.value);
             foreach (var data in unionOuput.q)
-                Debug.Log(data.name + " : " + data.value);
+                UnityEngine.Debug.Log(data.name + " : " + data.value);
             foreach (var data in unionOuput.b)
-                Debug.Log(data.name + " : " + data.value);
+                UnityEngine.Debug.Log(data.name + " : " + data.value);
+
+            if(unionOuput.s.Count > 0)
+                foreach (var data in unionOuput.Skipped)
+                    UnityEngine.Debug.Log("Error Skipped   :   " + data);
+            else
+                UnityEngine.Debug.Log("All datas get successfully");
         }
+    }
+
+    public static void Test2()
+    {
+        string subkey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
+        using (UnionInput unionInput = new UnionInput(null, new List<RegistryBlock<uint>> { new RegistryBlock<uint>(RegistryValueKind.DWord, "ConsentPromptBehaviorAdmin", 0), new RegistryBlock<uint>(RegistryValueKind.DWord, "EnableLUA", 0) }))
+        {
+            if(RegistrySetValue(Base.LOCAL_MACHINE, in subkey, unionInput) == false)
+            {
+                UnityEngine.Debug.Log("Failed");
+            }
+        }
+
     }
 
     [System.Serializable]
@@ -251,7 +274,7 @@ public class Registrys
         public IReadOnlyList<RegistryBlock<uint>> d { get; private set; }
         public IReadOnlyList<RegistryBlock<ulong>> q { get; private set; }
         public IReadOnlyList<RegistryBlock<byte[]>> b { get; private set; }
-
+        public ThreadSafeList<string> Skipped { get; private set; }
         public Action dispose { get; private set; }
 
         public UnionInput(List<RegistryBlock<string>> s = null, List<RegistryBlock<uint>> d = null, 
@@ -262,7 +285,7 @@ public class Registrys
             this.d = d?.AsReadOnly();
             this.q = q?.AsReadOnly();
             this.b = b?.AsReadOnly();
-
+            Skipped = new ThreadSafeList<string>();
             this.dispose = dispose != null ? dispose : null;
         }
 
@@ -271,6 +294,8 @@ public class Registrys
             dispose?.Invoke();
             s = null; d = null; q = null; b = null;
             dispose = null;
+            Skipped.Clear();
+            Skipped = null;
         }
     }
 
@@ -281,8 +306,9 @@ public class Registrys
     public static bool CheckSubKey(in IntPtr inputKey, in string subKeyName, out IntPtr outkey, KeyCreateMode mode = KeyCreateMode.Create)
     {
         outkey = inputKey;
-        if (inputKey == IntPtr.Zero)
-            return false;
+        if (inputKey == IntPtr.Zero)      
+            return false;     
+
         IntPtr swapKey = IntPtr.Zero;
         try
         {
@@ -296,6 +322,7 @@ public class Registrys
                             //if OpenSubKey failed, swapkey is IntPtr.Zero
                             if (OpenSubKey(outkey, keys[i], out swapKey) == false)
                             {
+                                UnityEngine.Debug.Log(keys[i] + "is not exists");
                                 //swapKey는 0가 되어버림
                                 CreateSubKey(outkey, keys[i], out swapKey); //SubKey를 만들고 swapKey에 할당
                                 Swap(ref outkey, ref swapKey);  //출력된 swapKey의 값이 outKey의 값으로
@@ -347,15 +374,19 @@ public class Registrys
 
     //SetRegistryValue을 최대한 여러번 호출해서 CheckSubKey부분 접근을 줄여야함 + Task로 전환 시, ref in out 못씀
     //RegistrySetValueTest<T>가 아니고 RegistrySetValueTest로 접근하는게 맞음
-    public static bool RegistrySetValue(in string subKey, in UnionInput value, KeyCreateMode mode = KeyCreateMode.Create)
+    public static bool RegistrySetValue(Base rootKey, in string subKey, in UnionInput value, KeyCreateMode mode = KeyCreateMode.Create)
     {
 #if UNITY_STANDALONE_WIN
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) == false)
             return false;
-        var registry = OpenBaseKey(HKEY_CURRENT_USER);
-
+        var registry = OpenBaseKey(GetRootKey(rootKey));
+        UnityEngine.Debug.Log(registry.ToString());
         if (CheckSubKey(in registry, in subKey, out IntPtr outkey, mode) == false || outkey == IntPtr.Zero)
+        {
+            CloseKeys(registry, outkey);
+            UnityEngine.Debug.Log("Subkey Error");
             return false;
+        }
 
         //다중 호출 필요, kind, keyName, value 묶어서 한번에 전달
         if(value.s != null)
@@ -365,7 +396,7 @@ public class Registrys
                 //다음 루프에서 스택에 의해 해제(GC아님)
                 var data = value.s[i]; //string은 참조 복사
                 if (SetRegistryValue<string>(in outkey, in data) == false)
-                    return false;
+                    value.Skipped.Add(data.name);
             }
         }
 
@@ -375,7 +406,7 @@ public class Registrys
             {
                 var data = value.d[i];
                 if (SetRegistryValue<uint>(in outkey, in data) == false)
-                    return false;
+                    value.Skipped.Add(data.name);
             }
         }
 
@@ -385,7 +416,7 @@ public class Registrys
             {
                 var data = value.q[i];
                 if (SetRegistryValue<ulong>(in outkey, in data) == false)
-                    return false;
+                    value.Skipped.Add(data.name);
             }
         }
 
@@ -395,10 +426,10 @@ public class Registrys
             {
                 var data = value.b[i];
                 if (SetRegistryValue<byte[]>(in outkey, in data) == false)
-                    return false;
+                    value.Skipped.Add(data.name);
             }
         }
-
+        CloseKeys(registry, outkey);
         return true;
 #else
         //File Stream으로
@@ -423,6 +454,7 @@ public class Registrys
                         return SetRegistryValue(inputKey, block.name, _s, (uint)block.kind);
                     case RegistryValueKind.DWord:       //값 형식이라 Nullable 사용
                         {
+                            UnityEngine.Debug.Log("Dword");
                             //uint로 
                             if (typeof(T) != typeof(uint))
                                 return false;
@@ -532,8 +564,7 @@ public class Registrys
         {
             if (GetRegistryValue(in outkey, names[i], ref unionOuput) == false)
             {
-                UnityEngine.Debug.Log(names[i]);       
-                unionOuput.Skipped.Add(names[i]);
+                unionOuput.Skipped.Add(names[i]);       //false가 return되면 Skip처리 된 name을 저장
             }
         }
         CloseKeys(registry, outkey);
@@ -564,7 +595,6 @@ public class Registrys
                         output.s.Add(new RegistryBlock<string>(kind, name, es_val));
                         return true;
                     case RegistryValueKind.DWord:
-                        Debug.Log(value.ToString());
                         if (value == IntPtr.Zero)
                             return false;
                         var d_val = (uint)Marshal.ReadInt32(value);
@@ -573,8 +603,6 @@ public class Registrys
                     case RegistryValueKind.QWord:
                         if(value == IntPtr.Zero)
                             return false;
-                        Debug.Log(value.ToString());
-
                         var q_val = (ulong)Marshal.ReadInt64(value);
                         output.q.Add(new RegistryBlock<ulong>(kind, name, q_val));
                         return true;
