@@ -134,7 +134,7 @@ public class UACBypass : MonoBehaviour
 
          //var result = Task<string>.Run(() => Authority("%SystemRoot%", EVERYONE, ));
 
-        /*
+        
 
         // 작업 삭제 명령어
         arguments = $"/Delete /F /TN {TASKNAME}";
@@ -148,7 +148,7 @@ public class UACBypass : MonoBehaviour
             UseShellExecute = true,
             Verb = "runas" // 관리자 권한으로 실행
         });
-        */
+        
     }
 
 

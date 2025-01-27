@@ -10,6 +10,8 @@ using System.Runtime.InteropServices;
 using System.Drawing;
 using System.Windows;
 using System.Numerics;
+using System.Threading;
+
 
 #if UNITY_2021_3_OR_NEWER
 using UnityEngine;
@@ -174,76 +176,3 @@ public class Display
         return (screenWidth, screenHeight);
     }
 }
-
-
-public static class EnumConverter
-{
-    struct Shell<T> where T : struct
-    {
-        public int IntValue;
-        public T Enum;
-    }
-
-    //https://www.slideshare.net/slideshow/enum-boxing-enum-ndc2019/142689361
-    public static int EnumToInt32<T>(T e) where T : struct
-    {
-        Shell<T> s;
-        s.Enum = e;
-        unsafe
-        {
-            int* p = &s.IntValue;
-            p += 1;
-            return *p;
-        }
-    }
-
-    public static T IntToEnum32<T>(int value) where T : struct
-    {
-        Shell<T> s = new Shell<T>();
-        unsafe
-        {
-            int* p = &s.IntValue;
-            p += 1;
-            *p = value;
-        }
-        return s.Enum;
-    }
-}
-
-//(ryzen7 5800x3d, ram 32gb) and (inten pentium g5400, ram 8gb) both (byte+implicit casting) > int
-public enum Keys : byte    
-{
-    A = 0x41,
-
-}
-
-public class KeyBoard
-{
-    //핫키등록
-    [DllImport("user32.dll")]        
-    private static extern int RegisterHotKey(int hwnd, int id, int fsModifiers, int vk);        
-    
-    //핫키제거
-    [DllImport("user32.dll")]       
-    private static extern int UnregisterHotKey(int hwnd, int id);
-
-    // Modifier 키 정의
-    public const uint MOD_ALT = 0x0001;
-    public const uint MOD_CONTROL = 0x0002;
-    public const uint MOD_SHIFT = 0x0004;
-    public const uint MOD_WIN = 0x0008;
-
-
-    private const int HOTKEY_ID = 125475;
-    private static void Test(int hWnd)
-    {
-
-    }
-
-}
-
-public class Registry
-{
-    
-}
-

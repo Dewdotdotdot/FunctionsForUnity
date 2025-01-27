@@ -9,18 +9,21 @@ using System.Text;
 using System.Runtime.InteropServices;
 
 using Debug = UnityEngine.Debug;
-using UnityEditor;
-using UnityEngine.XR;
+
 using System.Linq;
 using System.Collections.Generic;
 
 
 public class ProcessControl : MonoBehaviour
 {
+    const int WM_SETTEXT = 0X000C;
+
     [DllImport("user32.dll")]
     public static extern int FindWindow(string lpClassName, out IntPtr hWnd);
     [DllImport("user32.dll")]
     private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+    [DllImport("user32.dll", EntryPoint = "FindWindowEx")]
+    public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
     [DllImport("user32.dll")]
     public static extern IntPtr GetActiveWindow();
     [DllImport("user32.dll")]
@@ -53,13 +56,15 @@ public class ProcessControl : MonoBehaviour
     //SendMessage(hWnd, WM_KEYUP, (IntPtr) VK_A, IntPtr.Zero);   // 키 뗌
 
     [DllImport("user32.dll")]
-    private static extern bool SendMessage(IntPtr hWnd, uint Msg, int wParam, IntPtr lParam);
+    private static extern bool SendMessage(IntPtr hWnd, uint Msg, int wParam, int lParam);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern bool SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, string lParam);
 
     [DllImport("user32.dll")]
     private static extern bool PostMessage(IntPtr hWnd, uint Msg, int wParam, IntPtr lParam);
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr hWnd, uint Msg, int wParam, string lParam);
     private void Update()
     {
         if(Input.GetKeyDown(KeyCode.Keypad7))
@@ -90,11 +95,7 @@ public class ProcessControl : MonoBehaviour
         };
         Process process = Process.Start(processInfo);
         process.Refresh();
-        DateTime targetTime = process.StartTime;
         await Task.Delay(1000);
-
-        //시간 비교로 해야됨
-        //Debug.Log(targetTime);
 
         // 출력 결과 확인
         //string output = process.StandardOutput.ReadToEnd();
@@ -102,61 +103,93 @@ public class ProcessControl : MonoBehaviour
 
         //if (!string.IsNullOrEmpty(error))
         // {
-        //throw new UnauthorizedAccessException(error);
+        //  throw new UnauthorizedAccessException(error);
         // }
 
         Debug.Log(process.Id);
-        if (GetTargetProcessId("Notepad", targetTime, out int gettedID, out IntPtr hWnd) == false)
+        //IntPtr hwnd = process.MainWindowHandle;     //핸들 부분이 문제가 있음 process.Handle은 hwnd이 아님
+        if (GetTargetProcessId("Notepad", process.StartTime, out int gettedID, out IntPtr hWnd) == false)
             throw new ArgumentNullException("Process name is wrong");
 
-        //핸들 부분이 문제가 있음 process.Handle은 hwnd이 아님
-        //IntPtr hwnd = process.MainWindowHandle;     //
-        Keys[] keys = { Keys.VK_C, Keys.VK_D, Keys.VK_SPACE, Keys.VK_C, Keys.VK_LSHIFT, Keys.VK_OEM_1, Keys.VK_OEM_5 };
+        IntPtr hWndEdit = NotepadWindowHandle(true, in hWnd);
+        SendMessage(hWndEdit, WM_SETTEXT, IntPtr.Zero, ""); //됨
 
-        //if (ShowWindow(hWnd, SW_MINIMIZE) == false)
+
+        if (ShowWindow(hWnd, SW_MINIMIZE) == false)
             Debug.Log("Show Window Failed");
-        var foregrounder = Task.Run(async () => 
-        {
-            while(hWnd != IntPtr.Zero && hWnd != null)
-            {
-                if(GetForegroundWindow() != hWnd)
-                {
-                    SetForegroundWindow(hWnd);
-                    ShowWindow(hWnd, SW_SHOW);
-                }
-                await Task.Delay(500);
-            }
-        });
+
+        var foregrounder = Task.Run(() => PinWindow(hWnd));
+
+        //KeyBoard.keybd_event(KeyBoard.KeyConverter(Keys.VK_NUMPAD5), 0, KeyBoard.KEYEVENTF_KEYDOWN, 0);
+        //KeyBoard.keybd_event(KeyBoard.KeyConverter(Keys.VK_NUMPAD5), 0, KeyBoard.KEYEVENTF_KEYUP, 0);
 
         await Task.Delay(1000);
-        KeyBoard.keybd_event(KeyBoard.KeyConverter(Keys.VK_NUMPAD5), 0, KeyBoard.KEYEVENTF_KEYDOWN, 0);
-        KeyBoard.keybd_event(KeyBoard.KeyConverter(Keys.VK_NUMPAD5), 0, KeyBoard.KEYEVENTF_KEYUP, 0);
 
-        for (int i = 0; i < keys.Length; i++)
-        {
-            if(keys[i] == Keys.VK_LSHIFT)
-            {
-                SendMessage(hWnd, WM_KEYDOWN, (IntPtr)KeyBoard.KeyConverter(keys[i]), IntPtr.Zero);
-                SendMessage(hWnd, WM_KEYDOWN, (IntPtr)KeyBoard.KeyConverter(keys[i + 1]), IntPtr.Zero);
-                await Task.Delay(10);
-                SendMessage(hWnd, WM_KEYUP, (IntPtr)KeyBoard.KeyConverter(keys[i]), IntPtr.Zero);
-                SendMessage(hWnd, WM_KEYUP, (IntPtr)KeyBoard.KeyConverter(keys[i + 1]), IntPtr.Zero);
-                i += 1;
-            }
-            else
-            {
-                if (SendMessage(hWnd, WM_KEYDOWN, KeyBoard.KeyConverter(keys[i]), IntPtr.Zero) == false)
-                    Debug.Log("Input Down  Failed");
-                await Task.Delay(10);
-                if (SendMessage(hWnd, WM_KEYUP, KeyBoard.KeyConverter(keys[i]), IntPtr.Zero) == false)
-                    Debug.Log("Input Up Failed");
-            }
-            await Task.Delay(300);
-            Debug.Log("KeyInput");
-        }
+
+        string typingMessage = "롤스는 '정의론'에서 \"정의는 타인들이 갖게 될 보다 큰 선을 위하여 소수의 자유를 뺏는 것이 정당화될 수 없다\"고 주장하며 \"다수가 누릴,보다 큰 이득을 위해 소수에게 희생을 강요해도 좋다는 것을 정의는 용납할 수 없다\"며 평등의 원칙을 제시한다";
+        ReadOnlyMemory<char> mem = typingMessage.AsMemory();
+        await Task.Run(() => NotepadTyping(hWndEdit, mem, 100));
+
         Debug.Log(process.Id);
 
         await Task.WhenAll(Task.Run(() => { process.WaitForExit(); }), foregrounder);
+    }
+
+    private static async Task PinWindow(IntPtr hWnd)
+    {
+        ShowWindow(hWnd, 9);
+        while (hWnd != IntPtr.Zero && hWnd != null)
+        {
+            if (GetForegroundWindow() != hWnd)
+            {
+                SetForegroundWindow(hWnd);
+                ShowWindow(hWnd, SW_SHOW);
+            }
+            await Task.Delay(100);
+        }
+        await Task.Delay(100);
+    }
+
+    private static IntPtr NotepadWindowHandle(bool isWin11, in IntPtr hWnd)
+    {
+        try
+        {
+            IntPtr hWndEdit = IntPtr.Zero;
+            if (isWin11 == false)
+            {
+                hWndEdit = FindWindowEx(hWnd, IntPtr.Zero, "Edit", null);
+                if (hWndEdit == IntPtr.Zero)
+                    throw new NullReferenceException("Can nor find Notepad Edit class");
+                return hWndEdit;
+            }
+            else
+            {
+                hWndEdit = FindWindowEx(hWnd, IntPtr.Zero, "NotepadTextBox", null);
+                if (hWndEdit == IntPtr.Zero)
+                    throw new NullReferenceException("Can not find Notepad TextBox");
+                hWndEdit = FindWindowEx(hWndEdit, IntPtr.Zero, "RichEditD2DPT", null);
+                if (hWndEdit == IntPtr.Zero)
+                    throw new NullReferenceException("Can not find Notepad Edit class");
+                return hWndEdit;
+            }
+        }
+        catch
+        {
+            throw new Exception("Can not find class Name");
+        }
+    }
+
+    private static async Task NotepadTyping(IntPtr hWnd, ReadOnlyMemory<char> text, int delayTime)
+    {
+        StringBuilder sb = new StringBuilder(text.Span.Length);
+
+        for (int i = 0; i < text.Span.Length; i++)
+        {
+            sb.Append(text.Span[i]);
+
+            SendMessage(hWnd, WM_SETTEXT, IntPtr.Zero, sb.ToString()); //됨
+            await Task.Delay(delayTime);
+        }
     }
 
     public static async Task<Process> StartProcess(string fileName, string arguments, bool shellExcute,  bool isAdmin)
@@ -178,11 +211,6 @@ public class ProcessControl : MonoBehaviour
 
     [DllImport("user32.dll")]
     private static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool EnumThreadWindows(int dwThreadId, EnumThreadProc lpfn, IntPtr lParam);
-    private delegate bool EnumThreadProc(IntPtr hWnd, IntPtr lParam);
-
 
     // Delegate to filter which windows to include 
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
