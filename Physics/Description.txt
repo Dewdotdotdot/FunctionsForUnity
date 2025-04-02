@@ -1,0 +1,13 @@
+최적화 안되어 있음, 참고용으로만
+
+Raycast를 이용하였음
+
+반투명 또는 투명한 오브젝트에 적용
+target은 빛의 원점이고 target2는 빛의 방향을 지정하기 위해서 임시로 배치한 것.
+
+LightAttenuation은 감쇄에 대한 것인데 의미 없음으로 적용 안함
+
+queriesHitBackfaces을 켜줘야 2중 굴절이 가능해짐
+
+Reference
+https://physics.stackexchange.com/questions/435512/snells-law-in-vector-form
