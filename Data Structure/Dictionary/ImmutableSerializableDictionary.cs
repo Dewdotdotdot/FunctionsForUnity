@@ -1,27 +1,34 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using ArchiementTest;
 using UnityEngine;
 
+
 [System.Serializable]
-public class ImmutableSerializableDictionary<K, V> : ISerializationCallbackReceiver, IReadOnlyDictionary<K, V>
+public sealed class ImmutableSerializableDictionary<K, V> : ISerializationCallbackReceiver, IReadOnlyDictionary<K, V>
 {
 #if UNITY_EDITOR
     [System.Serializable]
-    private struct KVP<K, V>
+    internal struct KVP<K, V>
     {
         internal KVP(KeyValuePair<K, V> pair)
         {
             key = pair.Key;
             value = pair.Value;
         }
-        internal K key; internal V value;
+        [SerializeField] internal K key; [SerializeField] internal V value;
     }
     [Header("Immutable Data(Can not change)")]
     [SerializeField] private List<KVP<K, V>> _serializedData;
     public void OnBeforeSerialize()
     {
+        if (_internal == null)
+            return;
+        if(_serializedData == null)
+            _serializedData = new List<KVP<K, V>>();
         _serializedData.Clear();
         var list = _internal.ToList<KeyValuePair<K, V>>();
         for(int i = 0; i < list.Count; i++)
@@ -51,22 +58,19 @@ public class ImmutableSerializableDictionary<K, V> : ISerializationCallbackRecei
 
     public static ImmutableSerializableDictionary<K, V> Create(IDictionary<K, V> dictionary, EqualityComparer<K> comparer = null)
     {
+        if (dictionary == null) 
+            throw new ArgumentNullException(nameof(dictionary));
+
         Dictionary<K,V> dic = new Dictionary<K,V>(dictionary, comparer == null ? EqualityComparer<K>.Default : comparer);
         return new ImmutableSerializableDictionary<K,V>(dic);
     }
 
-    public static ImmutableSerializableDictionary<K, V> Create(IEnumerable<KeyValuePair<K, V>> kvPairs)
+    public static ImmutableSerializableDictionary<K, V> Create(IEnumerable<KeyValuePair<K, V>> kvPairs, EqualityComparer<K> comparer = null)
     {
-
-    }
-    public static ImmutableSerializableDictionary<K, V> Create(IEnumerable<V> values)
-    {
-        List<int> test = new List<int>();
-        IList<int> testb = test;
-        ConcurrentBag<int> bag = new ConcurrentBag<int>();
-        IEnumerable<int> c = bag;
-        Dictionary<K, V> dasd = new Dictionary<K, V>();
-        IEnumerable<KeyValuePair<K, V>> test3 = dasd;
+        if (kvPairs == null)
+            throw new ArgumentNullException(nameof(kvPairs));
+        Dictionary<K, V> dic = new Dictionary<K, V>(kvPairs, comparer == null ? EqualityComparer<K>.Default : comparer);
+        return new ImmutableSerializableDictionary<K, V>(dic);
     }
 
     public int Count => _internal.Count;
@@ -81,14 +85,10 @@ public class ImmutableSerializableDictionary<K, V> : ISerializationCallbackRecei
 
     public bool TryGetValue(K key, out V value) => _internal.TryGetValue(key, out value);
 
-    public IEnumerator<KeyValuePair<K, V>> GetEnumerator()
-    {
+    public IEnumerable<KeyValuePair<K, V>> AsEnumerable() => _internal.AsEnumerable();
 
-    }
+    public IEnumerator<KeyValuePair<K, V>> GetEnumerator() => _internal.GetEnumerator();
 
-    IEnumerator IEnumerable.GetEnumerator()
-    {
-
-    }
+    IEnumerator IEnumerable.GetEnumerator() => _internal.GetEnumerator();
 
 }

@@ -197,10 +197,13 @@ public class SerializableConcurrentDictioanry<Key, Value> : ISerializationCallba
     {
         return _internal.GetEnumerator();
     }
-    public ICollection<Key> Keys => _internal.Keys;
-
-    public ICollection<Value> Values => _internal.Values;
+    public IEnumerable<Key> Keys => _internal.Keys;
+    public IEnumerable<Value> Values => _internal.Values;
+    public IEnumerable<KeyValuePair<Key, Value>> AsEnumerable => _internal;
+    
     IEnumerable<Key> IReadOnlyDictionary<Key, Value>.Keys => _internal.Keys;
-
     IEnumerable<Value> IReadOnlyDictionary<Key, Value>.Values => _internal.Values;
+    ICollection<Key> IDictionary<Key, Value>.Keys => _internal.Keys;
+    ICollection<Value> IDictionary<Key, Value>.Values => _internal.Values;
+
 }

@@ -97,8 +97,9 @@ public class TypeControllNestedDictionary<K, V> : ISerializationCallbackReceiver
         IDictionary<Type, SerializableConcurrentDictioanry<K, V>> dic = new Dictionary<Type, SerializableConcurrentDictioanry<K, V>>();
         _internal = SerializableConcurrentDictioanry<Type, SerializableConcurrentDictioanry<K, V>>.Create(dic);
     }
-    public ICollection<K> NestedKeys(Type type) { return _internal[type].Keys; }
-    public ICollection<V> NestedValues(Type type) { return _internal[type].Values; }
+    public IEnumerable<SerializableConcurrentDictioanry<K, V>> Values => _internal.Values;
+    public IEnumerable<K> NestedKeys(Type type) { return _internal[type].Keys; }
+    public IEnumerable<V> NestedValues(Type type) { return _internal[type].Values; }
 
     public IEnumerable<KeyValuePair<K, V>> NestedPair(Type type) { return _internal[type]; }
 
@@ -323,5 +324,21 @@ public class TypeControllNestedDictionary<K, V> : ISerializationCallbackReceiver
         return true;
     }
 
+    public bool TryResetDictionary()
+    {
+        var keys = _internal.Keys;
 
+        foreach (var key in keys)
+        {
+            if (_internal.ContainsKey(key) == false)
+                continue;
+            else
+            {
+                _internal.TryRemove(key, out var data);
+                data.Clear();
+                data = null;
+            }
+        }
+        return true;
+    }
 }
